@@ -59,7 +59,10 @@ export async function deleteEvent(id: string) {
 }
 
 /** 简单范围查询（不展开 RRULE） */
-export async function getEventsBetween(startISO: string, endISO: string) {
+export async function getEventsBetween(
+  startISO: string,
+  endISO: string
+) {
   const all = await loadAll();
   const start = DateTime.fromISO(startISO);
   const end = DateTime.fromISO(endISO);
@@ -72,7 +75,6 @@ export async function getEventsBetween(startISO: string, endISO: string) {
 
 export function subscribe(cb: (items: EventRecord[]) => void) {
   listeners.push(cb);
-  // return unsubscribe
   return () => {
     listeners = listeners.filter((l) => l !== cb);
   };
