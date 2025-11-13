@@ -32,36 +32,50 @@ export default function DayView() {
     // 优先使用 expandRecurrences（如果存在），这样会处理 RRULE/EXDATE/RDATE
     try {
       if (typeof expandRecurrences === 'function') {
-        // expandRecurrences 接受原始事件和范围，返回实例数组（请根据你 utils 实现调整签名）
-        const instances = expandRecurrences(storedEvents, dayStart.toISO(), dayEnd.toISO());
-        // instances 应包含 { id, title, start: DateTime, end: DateTime } 或类似结构
-        return instances.map((ins: any) => ({
-          id: ins.id ?? `${ins.title}-${ins.start}`,
-          title: ins.title ?? 'Event',
-          start: DateTime.fromISO(ins.start),
-          end: DateTime.fromISO(ins.end),
+        // 统一把存储事件映射为 utils/recurrence 接受的 InputEvent（string 字段）
+        const input = (storedEvents ?? []).map((ev) => ({
+          id: ev.id,
+          title: ev.title,
+          dtstart: ev.dtstart,
+          dtend: ev.dtend,
+          rrule: ev.rrule,
+          exdate: ev.exdate,
+          rdate: ev.rdate,
+          timezone: ev.timezone,
         }));
+
+        // 传入 DateTime 范围（与 month/week 保持一致）
+        const instances = expandRecurrences(input, dayStart, dayEnd);
+
+        // 规范化实例：实例的 start/end 可能为 ISO 字符串或 DateTime，统一转为 DateTime
+        return instances
+          .map((ins: any) => {
+            const start =
+              (DateTime as any).isDateTime?.(ins.start) ?? false ? ins.start : DateTime.fromISO(String(ins.start));
+            const end =
+              (DateTime as any).isDateTime?.(ins.end) ?? false ? ins.end : DateTime.fromISO(String(ins.end));
+            return {
+              id: ins.id ?? `${ins.title}-${ins.start}`,
+              title: ins.title ?? 'Event',
+              start,
+              end,
+            };
+          })
+          // 确保仅保留在当天范围内的实例（使用 toMillis 比较）
+          .filter((ev: any) => !(ev.start.toMillis() > dayEnd.toMillis() || ev.end.toMillis() < dayStart.toMillis()));
       }
     } catch (e) {
-      // fallback 到简单过滤
+      // 如果 expandRecurrences 出错，退回到简单过滤
     }
 
-    // fallback: 只处理非重复事件（简单过滤）
+    // fallback: 只处理非重复事件（简单过滤），并用 toMillis 做比较
     return (storedEvents ?? [])
       .map((ev) => {
         const s = DateTime.fromISO(ev.dtstart);
         const e = ev.dtend ? DateTime.fromISO(ev.dtend) : s;
-        return { ...ev, start: s, end: e };
+        return { id: ev.id, title: ev.title, start: s, end: e };
       })
-      .filter((ev) => {
-        return !(ev.start > dayEnd || ev.end < dayStart);
-      })
-      .map((ev) => ({
-        id: ev.id,
-        title: ev.title,
-        start: ev.start,
-        end: ev.end,
-      }));
+      .filter((ev) => !(ev.start.toMillis() > dayEnd.toMillis() || ev.end.toMillis() < dayStart.toMillis()));
   }, [storedEvents, dayStart, dayEnd]);
 
   // compute absolute positions for events
