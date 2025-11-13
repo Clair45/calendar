@@ -2,6 +2,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { DateTime } from "luxon";
 import { useMemo } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEvents } from '../../lib/hooks/useEvents';
+import { expandRecurrences, groupByDate, InputEvent } from "../utils/recurrence";
 
 const HOUR_HEIGHT = 80;
 
@@ -15,6 +17,7 @@ type DemoEvent = {
 export default function WeekView() {
   const params = useLocalSearchParams() as { date?: string | string[] | undefined };
   const router = useRouter();
+  const { items: storedEvents } = useEvents();
 
   const selected = useMemo(() => {
     try {
@@ -31,37 +34,24 @@ export default function WeekView() {
     [weekStart]
   );
 
-  // demo events per day (replace with real events from expandRecurrences)
-  const eventsByDay = useMemo((): Record<string, DemoEvent[]> => {
-    return days.reduce<Record<string, DemoEvent[]>>((acc, d, idx) => {
-      const day = d; // DateTime at startOf('day')
-      const iso = d.toISODate();
-      if (!iso) {
-        return acc; // skip invalid dates
-      }
-      acc[iso] = [
-        {
-          id: `m-${idx}-1`,
-          title: "Meeting",
-          start: day.plus({ hours: 9 + (idx % 2), minutes: 0 }),
-          end: day.plus({ hours: 10, minutes: 0 }),
-        },
-        {
-          id: `m-${idx}-2`,
-          title: "Call",
-          start: day.plus({ hours: 12, minutes: 30 }),
-          end: day.plus({ hours: 13, minutes: 15 }),
-        },
-        {
-          id: `m-${idx}-3`,
-          title: "Review",
-          start: day.plus({ hours: 15, minutes: 0 }),
-          end: day.plus({ hours: 16, minutes: 0 }),
-        },
-      ];
-      return acc;
-    }, {});
-  }, [days]);
+  // 使用持久化事件并展开重复，按日期分组
+  const instances = useMemo(() => {
+    const input: InputEvent[] = (storedEvents ?? []).map((ev) => ({
+      id: ev.id,
+      title: ev.title,
+      dtstart: ev.dtstart,
+      dtend: ev.dtend,
+      rrule: ev.rrule,
+      exdate: ev.exdate,
+      rdate: ev.rdate,
+      timezone: ev.timezone,
+    }));
+    const rangeStart = weekStart.startOf('day');
+    const rangeEnd = weekStart.plus({ days: 6 }).endOf('day');
+    return expandRecurrences(input, rangeStart, rangeEnd);
+  }, [storedEvents, weekStart]);
+
+  const eventsByDate = useMemo(() => groupByDate(instances, 'local'), [instances]);
 
   // compute positioned events for rendering
   const positionedByDay = useMemo(() => {
@@ -70,7 +60,12 @@ export default function WeekView() {
       const key = d.toISODate();
       if (!key) continue; // <- guard: 避免 key 为 null 导致类型错误
 
-      const evs = eventsByDay[key] ?? [];
+      const evs = (eventsByDate[key] ?? []).map((x) => ({
+        id: x.id,
+        title: x.title,
+        start: DateTime.fromISO(x.start),
+        end: DateTime.fromISO(x.end),
+      })) as DemoEvent[];
       out[key] = evs.map((ev) => {
         const startHour = ev.start.hour + ev.start.minute / 60;
         const durationHours = Math.max(0.25, ev.end.diff(ev.start, "minutes").minutes / 60); // 最小 15 分钟
@@ -80,7 +75,7 @@ export default function WeekView() {
       });
     }
     return out;
-  }, [days, eventsByDay]);
+  }, [days, eventsByDate]);
 
   return (
     <View style={styles.container}>

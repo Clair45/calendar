@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { DateTime } from "luxon";
 import { useMemo, useState } from "react";
 import { Button, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEvents } from '../../lib/hooks/useEvents';
 import { expandRecurrences, groupByDate, InputEvent } from "../utils/recurrence";
 
 /**
@@ -30,37 +31,35 @@ function generateMonthMatrix(monthDate: DateTime, weekStartsOnMonday = true) {
 }
 
 export default function MonthView() {
-  // 当前显示的月份状态（默认为当前月份）
-  const [current, setCurrent] = useState<DateTime>(() => DateTime.local().startOf("month"));
-  const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerYear, setPickerYear] = useState<number>(current.year);
+   // 当前显示的月份状态（默认为当前月份）
+   const [current, setCurrent] = useState<DateTime>(() => DateTime.local().startOf("month"));
+   const [pickerVisible, setPickerVisible] = useState(false);
+   const [pickerYear, setPickerYear] = useState<number>(current.year);
 
-  // 示例事件数据
-  const [events] = useState<InputEvent[]>([
-    {
-      id: "1",
-      title: "Board meeting",
-      dtstart: DateTime.local().set({ day: 5, hour: 10, minute: 0 }).toISO(),
-      dtend: DateTime.local().set({ day: 5, hour: 11, minute: 0 }).toISO(),
-      timezone: "local",
-    },
-    {
-      id: "2",
-      title: "Standup",
-      dtstart: DateTime.local().set({ day: 1, hour: 9, minute: 0 }).toISO(),
-      dtend: DateTime.local().set({ day: 1, hour: 9, minute: 15 }).toISO(),
-      rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;INTERVAL=1",
-      timezone: "local",
-    },
-  ]);
+  // 从持久化中读取事件
+  const { items: storedEvents } = useEvents();
+  const inputEvents = useMemo<InputEvent[]>(
+    () =>
+      (storedEvents ?? []).map((ev) => ({
+        id: ev.id,
+        title: ev.title,
+        dtstart: ev.dtstart,
+        dtend: ev.dtend,
+        rrule: ev.rrule,
+        exdate: ev.exdate,
+        rdate: ev.rdate,
+        timezone: ev.timezone,
+      })),
+    [storedEvents]
+  );
 
-  //当前月份的日历矩阵
+  // 当前月份的日历矩阵
   const matrix = useMemo(() => generateMonthMatrix(current), [current]);
   const matrixStart = matrix[0][0].startOf("day");
   const matrixEnd = matrix[5][6].endOf("day");
 
   // 展开重复事件，获取在显示范围内的所有事件实例
-  const instances = useMemo(() => expandRecurrences(events, matrixStart, matrixEnd), [events, matrixStart, matrixEnd]);
+  const instances = useMemo(() => expandRecurrences(inputEvents, matrixStart, matrixEnd), [inputEvents, matrixStart, matrixEnd]);
   const eventsByDate = useMemo(() => groupByDate(instances, "local"), [instances]); //按日期分组事件
   const router = useRouter();
 
