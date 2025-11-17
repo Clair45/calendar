@@ -151,8 +151,9 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   }
 
   function onTimeScrollEnd(e: any, which: "start" | "end") {
-    const y = e.nativeEvent.contentOffset.y;
-    const idx = Math.round(y / TIME_ITEM_HEIGHT);
+    const y = e.nativeEvent.contentOffset.y ?? 0;
+    const mid = Math.floor(VISIBLE_TIME_ITEMS / 2);
+    const idx = Math.round(y / TIME_ITEM_HEIGHT) + mid;
     const clamped = Math.max(0, Math.min(TIME_OPTIONS.length - 1, idx));
     const [hh, mm] = TIME_OPTIONS[clamped].split(":").map((s) => parseInt(s, 10));
     // 只修改当天的时分，不允许改变日期
@@ -265,8 +266,9 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
      }, [visible, which]);
  
      function handleScrollEnd(e: any) {
-       const y = e.nativeEvent.contentOffset.y;
-       const idx = Math.round(y / TIME_ITEM_HEIGHT);
+       const y = e.nativeEvent.contentOffset.y ?? 0;
+       const mid = Math.floor(VISIBLE_TIME_ITEMS / 2);
+       const idx = Math.round(y / TIME_ITEM_HEIGHT) + mid;
        const clamped = Math.max(0, Math.min(TIME_OPTIONS.length - 1, idx));
        setSelectedIdx(clamped);
      }
@@ -516,7 +518,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
    pickerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", alignItems: "center" },
    calendar: { width: 320, backgroundColor: "#fff", borderRadius: 10, padding: 12 },
    /* 内联日历样式（放在字段下方，宽度适配容器） */
-   calendarInline: { width: "100%", backgroundColor: "#fff", borderRadius: 10, padding: 8, borderWidth: 1, borderColor: "#eee" },
+   calendarInline: { width: "100%", backgroundColor: "#fff", borderRadius: 10, padding: 8, borderWidth: 1, borderColor: "#eee", marginTop: -30},
    calendarHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
    calendarTitle: { fontWeight: "600" },
    weekDays: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6 },
