@@ -24,7 +24,7 @@ export default function DayView() {
       return DateTime.local();
     }
   }, [date]);
-
+  
   const dayStart = selected.startOf('day');
   const dayEnd = selected.endOf('day');
 
@@ -125,15 +125,15 @@ export default function DayView() {
           <Text style={styles.monthBackText}>{selected.toFormat('LLLL yyyy')}</Text>
         </TouchableOpacity>
 
-        {/* Week button (if exists) */}
-        <TouchableOpacity onPress={() => router.push(`/week?date=${selected.toISODate()}`)} style={styles.rightHeaderBtn}>
-          <Text style={{ color: '#007bff', fontWeight: '600' }}>Week</Text>
-        </TouchableOpacity>
-
-        {/* Add event button (右上 +) */}
-        <TouchableOpacity onPress={() => setShowCreateModal(true)} style={[styles.rightHeaderBtn, { marginRight: 12 }]}>
-          <Text style={{ fontSize: 22, color: '#007bff' }}>＋</Text>
-        </TouchableOpacity>
+        {/* 右上控件：Week + Add（避免重叠，放入容器） */}
+        <View style={styles.rightControls}>
+          <TouchableOpacity onPress={() => router.push(`/week?date=${selected.toISODate()}`)} style={styles.headerAction} accessibilityRole="button">
+            <Text style={styles.headerActionText}>Week</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowCreateModal(true)} style={styles.headerAction} accessibilityRole="button">
+            <Text style={styles.addButton}>＋</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Week strip */}
@@ -221,4 +221,8 @@ const styles = StyleSheet.create({
   monthBackButton: { paddingVertical: 6, paddingHorizontal: 8 },
   monthBackText: { fontSize: 16, fontWeight: '600', color: '#007bff' },
   rightHeaderBtn: { position: 'absolute', right: 12, top: 8, padding: 8 },
+  rightControls: { position: 'absolute', right: 12, top: 6, flexDirection: 'row', alignItems: 'center' },
+  headerAction: { marginLeft: 8, padding: 6 },
+  headerActionText: { color: '#007bff', fontWeight: '600' },
+  addButton: { fontSize: 22, color: '#007bff' },
 });

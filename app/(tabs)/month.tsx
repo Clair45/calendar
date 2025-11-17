@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { useMemo, useState } from "react";
 import { Button, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useEvents } from '../../lib/hooks/useEvents';
+import EventFormModal from '../components/EventFormModal';
 import { expandRecurrences, groupByDate, InputEvent } from "../utils/recurrence";
 
 /**
@@ -35,6 +36,7 @@ export default function MonthView() {
    const [current, setCurrent] = useState<DateTime>(() => DateTime.local().startOf("month"));
    const [pickerVisible, setPickerVisible] = useState(false);
    const [pickerYear, setPickerYear] = useState<number>(current.year);
+   const [showCreateModal, setShowCreateModal] = useState(false);
 
   // 从持久化中读取事件
   const { items: storedEvents } = useEvents();
@@ -77,6 +79,13 @@ export default function MonthView() {
         <TouchableOpacity onPress={() => setCurrent((c) => c.plus({ months: 1 }))} style={styles.navButton}>
           <Text>{">"}</Text>
         </TouchableOpacity>
+
+        {/* Add button (右上) */}
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={() => setShowCreateModal(true)} style={{ padding: 6 }}>
+            <Text style={styles.addButton}>＋</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.weekDaysRow}>
@@ -170,6 +179,7 @@ export default function MonthView() {
           </View>
         </View>
       </Modal>
+      <EventFormModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} initialDate={current} />
     </View>
   );
 }
@@ -203,4 +213,6 @@ const styles = StyleSheet.create({
   monthColumn: { flex: 1, paddingLeft: 8, flexWrap: 'wrap', flexDirection: 'row', justifyContent: 'space-between' },
   monthItem: { width: '30%', paddingVertical: 10, alignItems: 'center', marginBottom: 8, borderRadius: 6, backgroundColor: '#f7f7f7' },
   monthText: { fontSize: 14, color: '#222' },
+  headerRight: { position: 'absolute', right: 12, top: 12 },
+  addButton: { fontSize: 22, color: '#007bff' },
 });

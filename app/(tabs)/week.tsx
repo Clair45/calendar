@@ -1,8 +1,9 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { DateTime } from "luxon";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useEvents } from '../../lib/hooks/useEvents';
+import EventFormModal from '../components/EventFormModal';
 import { expandRecurrences, groupByDate, InputEvent } from "../utils/recurrence";
 
 const HOUR_HEIGHT = 80;
@@ -18,6 +19,7 @@ export default function WeekView() {
   const params = useLocalSearchParams() as { date?: string | string[] | undefined };
   const router = useRouter();
   const { items: storedEvents } = useEvents();
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const selected = useMemo(() => {
     try {
@@ -82,6 +84,11 @@ export default function WeekView() {
       {/* header: week range */}
       <View style={styles.header}>
         <Text style={styles.title}>Week of {weekStart.toFormat("LLL dd, yyyy")}</Text>
+        <View style={styles.rightControlsHeader}>
+          <TouchableOpacity onPress={() => setShowCreateModal(true)} style={styles.headerAction}>
+            <Text style={styles.addButton}>＋</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -132,6 +139,8 @@ export default function WeekView() {
           </View>
         </View>
       </ScrollView>
+
+      <EventFormModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} initialDate={selected} />
     </View>
   );
 }
@@ -140,6 +149,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   header: { height: 56, justifyContent: "center", paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: "#eee" },
   title: { fontSize: 18, fontWeight: "600" },
+  rightControlsHeader: { position: 'absolute', right: 12, top: 12, flexDirection: 'row', alignItems: 'center' },
+  headerAction: { padding: 6 },
+  addButton: { fontSize: 22, color: '#007bff' },
 
   hoursColumn: { width: 80, backgroundColor: "#fff" },
   hourRow: { alignItems: "flex-end", paddingRight: 8 },

@@ -148,7 +148,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#fff", borderTopLeftRadius: 12, borderTopRightRadius: 12, paddingBottom: 24 },
+  sheet: { flex: 1, marginTop: 60, backgroundColor: "#fff", borderTopLeftRadius: 12, borderTopRightRadius: 12, paddingBottom: 24, overflow: "hidden" },
   header: { height: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12 },
   headerBtn: { padding: 8 },
   headerTitle: { fontSize: 16, fontWeight: "600" },
