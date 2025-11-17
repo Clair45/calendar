@@ -3,8 +3,9 @@ import { DateTime } from "luxon";
 import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useEvents } from '../../lib/hooks/useEvents';
+import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
-import { expandRecurrences, groupByDate, InputEvent } from "../utils/recurrence";
+import { expandRecurrences, groupByDate } from "../utils/recurrence";
 
 const HOUR_HEIGHT = 80;
 
@@ -13,6 +14,7 @@ type DemoEvent = {
   title: string;
   start: DateTime;
   end: DateTime;
+  location?: string;
 };
 
 export default function WeekView() {
@@ -20,6 +22,7 @@ export default function WeekView() {
   const router = useRouter();
   const { items: storedEvents } = useEvents();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
 
   const selected = useMemo(() => {
     try {
@@ -36,9 +39,9 @@ export default function WeekView() {
     [weekStart]
   );
 
-  // 使用持久化事件并展开重复，按日期分组
   const instances = useMemo(() => {
-    const input: InputEvent[] = (storedEvents ?? []).map((ev) => ({
+    // 保留 location 字段并建立映射
+    const input = (storedEvents ?? []).map((ev) => ({
       id: ev.id,
       title: ev.title,
       dtstart: ev.dtstart,
@@ -47,32 +50,44 @@ export default function WeekView() {
       exdate: ev.exdate,
       rdate: ev.rdate,
       timezone: ev.timezone,
+      location: (ev as any).location ?? '',
     }));
     const rangeStart = weekStart.startOf('day');
     const rangeEnd = weekStart.plus({ days: 6 }).endOf('day');
-    return expandRecurrences(input, rangeStart, rangeEnd);
+
+    const locMap: Record<string, string> = {};
+    for (const e of input) if (e.id) locMap[e.id] = e.location ?? '';
+
+    const expanded = expandRecurrences(input, rangeStart, rangeEnd) ?? [];
+    // expanded items may or may not contain location — fallback to locMap
+    const toDT = (v: any) => ((DateTime as any).isDateTime?.(v) ? v : DateTime.fromISO(String(v)));
+    return (expanded ?? []).map((ins: any) => {
+      const s = toDT(ins.start ?? ins.dtstart);
+      const e = ins.end ?? ins.dtend ? toDT(ins.end ?? ins.dtend) : s.plus({ minutes: 30 });
+      return { id: ins.id, title: ins.title, start: s, end: e, location: (ins as any).location ?? locMap[ins.id] ?? '' } as DemoEvent;
+    });
   }, [storedEvents, weekStart]);
 
   const eventsByDate = useMemo(() => groupByDate(instances, 'local'), [instances]);
 
-  // compute positioned events for rendering
   const positionedByDay = useMemo(() => {
     const out: Record<string, Array<DemoEvent & { top: number; height: number }>> = {};
     for (const d of days) {
       const key = d.toISODate();
-      if (!key) continue; // <- guard: 避免 key 为 null 导致类型错误
-
-      const evs = (eventsByDate[key] ?? []).map((x) => ({
+      if (!key) continue;
+      const evs = (eventsByDate[key] ?? []).map((x: any) => ({
         id: x.id,
         title: x.title,
-        start: DateTime.fromISO(x.start),
-        end: DateTime.fromISO(x.end),
+        start: x.start,
+        end: x.end,
+        location: (x as any).location ?? '',
       })) as DemoEvent[];
       out[key] = evs.map((ev) => {
         const startHour = ev.start.hour + ev.start.minute / 60;
-        const durationHours = Math.max(0.25, ev.end.diff(ev.start, "minutes").minutes / 60); // 最小 15 分钟
+        const durationMins = Math.max(15, ev.end.diff(ev.start, "minutes").minutes || 15);
+        const durationHours = durationMins / 60;
         const top = startHour * HOUR_HEIGHT;
-        const height = Math.max(24, durationHours * HOUR_HEIGHT);
+        const height = Math.max(40, durationHours * HOUR_HEIGHT);
         return { ...ev, top, height };
       });
     }
@@ -81,7 +96,6 @@ export default function WeekView() {
 
   return (
     <View style={styles.container}>
-      {/* header: week range */}
       <View style={styles.header}>
         <Text style={styles.title}>Week of {weekStart.toFormat("LLL dd, yyyy")}</Text>
         <View style={styles.rightControlsHeader}>
@@ -93,7 +107,6 @@ export default function WeekView() {
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={{ flexDirection: "row", minHeight: 24 * HOUR_HEIGHT }}>
-          {/* hours column */}
           <View style={styles.hoursColumn}>
             {Array.from({ length: 24 }).map((_, h) => (
               <View key={h} style={[styles.hourRow, { height: HOUR_HEIGHT }]}>
@@ -102,10 +115,9 @@ export default function WeekView() {
             ))}
           </View>
 
-          {/* 7 day columns */}
           <View style={styles.daysRow}>
             {days.map((d) => {
-              const key = d.toISODate() ?? d.toISO() ?? `day-${d.toMillis()}`; // 保证为 string
+              const key = d.toISODate() ?? d.toISO() ?? `day-${d.toMillis()}`;
               const positioned = positionedByDay[key] ?? [];
               const isToday = d.hasSame(DateTime.local(), "day");
               return (
@@ -125,13 +137,15 @@ export default function WeekView() {
                     ))}
 
                     {positioned.map((ev) => (
-                      <View key={ev.id} style={[styles.eventBlock, { top: ev.top, height: ev.height }]}>
+                      <TouchableOpacity key={ev.id + '-' + ev.start.toISO()} activeOpacity={0.85} onPress={() => setSelectedEvent(ev)} style={[styles.eventBlock, { top: ev.top, height: ev.height }]}>
                         <Text style={styles.eventTitle}>{ev.title}</Text>
+                        {ev.location ? <Text style={styles.eventLocation} numberOfLines={1}>{ev.location}</Text> : null}
                         <Text style={styles.eventTime}>
                           {ev.start.toFormat("HH:mm")} - {ev.end.toFormat("HH:mm")}
                         </Text>
-                      </View>
+                      </TouchableOpacity>
                     ))}
+                    <EventDetail visible={selectedEvent !== null} event={selectedEvent} onClose={() => setSelectedEvent(null)} />
                   </View>
                 </View>
               );
@@ -168,7 +182,8 @@ const styles = StyleSheet.create({
   dayBody: { position: "relative", flex: 1 },
   hourSlot: { borderTopWidth: 1, borderTopColor: "#f9f9f9" },
 
-  eventBlock: { position: "absolute", left: 6, right: 6, backgroundColor: "#007bff", borderRadius: 6, padding: 6, zIndex: 10, opacity: 0.95 },
+  eventBlock: { position: "absolute", left: 6, right: 6, backgroundColor: "#007bff", borderRadius: 6, padding: 8, zIndex: 10, opacity: 0.95 },
   eventTitle: { color: "#fff", fontWeight: "600", fontSize: 12 },
+  eventLocation: { color: "#eaf4ff", fontSize: 11, opacity: 0.95, marginTop: 4 },
   eventTime: { color: "#eaf4ff", fontSize: 11, marginTop: 4 },
 });

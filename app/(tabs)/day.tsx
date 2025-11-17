@@ -1,21 +1,20 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { DateTime } from 'luxon';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useEvents } from '../../lib/hooks/useEvents';
+import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
 import { expandRecurrences } from '../utils/recurrence';
 
 const HOUR_HEIGHT = 80; // px per hour
 
-/**
- * 日视图组件 - 显示单日的时间轴和事件安排
- */
 export default function DayView() {
   const { date } = useLocalSearchParams();
   const router = useRouter();
-  const { items: storedEvents, loading } = useEvents();
+  const { items: storedEvents } = useEvents();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
 
   const selected = useMemo(() => {
     try {
@@ -24,108 +23,99 @@ export default function DayView() {
       return DateTime.local();
     }
   }, [date]);
-  
+
   const dayStart = selected.startOf('day');
   const dayEnd = selected.endOf('day');
 
+  // 一周起点与周条（用于在日视图顶部显示周 7 天）
+  const weekStart = selected.startOf('week');
+  const days = useMemo(
+    () => Array.from({ length: 7 }).map((_, i) => weekStart.plus({ days: i }).startOf('day')),
+    [weekStart]
+  );
+
   const dayEvents = useMemo(() => {
-    // 优先使用 expandRecurrences（如果存在），这样会处理 RRULE/EXDATE/RDATE
     try {
-      if (typeof expandRecurrences === 'function') {
-        // 统一把存储事件映射为 utils/recurrence 接受的 InputEvent（string 字段）
-        const input = (storedEvents ?? []).map((ev) => ({
-          id: ev.id,
-          title: ev.title,
-          dtstart: ev.dtstart,
-          dtend: ev.dtend,
-          rrule: ev.rrule,
-          exdate: ev.exdate,
-          rdate: ev.rdate,
-          timezone: ev.timezone,
-        }));
+      const input = (storedEvents ?? []).map((ev) => ({
+        id: ev.id,
+        title: ev.title,
+        dtstart: ev.dtstart,
+        dtend: ev.dtend,
+        rrule: ev.rrule,
+        exdate: ev.exdate,
+        rdate: ev.rdate,
+        timezone: ev.timezone,
+        location: (ev as any).location ?? '',
+      }));
+      const locMap: Record<string, string> = {};
+      for (const ev of input) if (ev.id) locMap[ev.id] = ev.location ?? '';
 
-        // 传入 DateTime 范围（与 month/week 保持一致）
-        const instances = expandRecurrences(input, dayStart, dayEnd);
+      const instances = expandRecurrences(input, dayStart, dayEnd) ?? [];
 
-        // 规范化实例：实例的 start/end 可能为 ISO 字符串或 DateTime，统一转为 DateTime
-        return instances
-          .map((ins: any) => {
-            const start =
-              (DateTime as any).isDateTime?.(ins.start) ?? false ? ins.start : DateTime.fromISO(String(ins.start));
-            const end =
-              (DateTime as any).isDateTime?.(ins.end) ?? false ? ins.end : DateTime.fromISO(String(ins.end));
-            return {
-              id: ins.id ?? `${ins.title}-${ins.start}`,
-              title: ins.title ?? 'Event',
-              start,
-              end,
-            };
-          })
-          // 确保仅保留在当天范围内的实例（使用 toMillis 比较）
-          .filter((ev: any) => !(ev.start.toMillis() > dayEnd.toMillis() || ev.end.toMillis() < dayStart.toMillis()));
-      }
-    } catch (e) {
-      // 如果 expandRecurrences 出错，退回到简单过滤
+      // normalize instances and fill location fallback
+      const toDT = (v: any) => ((DateTime as any).isDateTime?.(v) ? v : DateTime.fromISO(String(v)));
+      return (instances ?? [])
+        .map((ins: any) => {
+          const start = toDT(ins.start ?? ins.dtstart);
+          const end = ins.end ?? ins.dtend ? toDT(ins.end ?? ins.dtend) : start.plus({ minutes: 30 });
+          return {
+            id: ins.id ?? `${ins.title}-${ins.start}`,
+            title: ins.title ?? 'Event',
+            start,
+            end,
+            location: (ins as any).location ?? locMap[ins.id] ?? '',
+          };
+        })
+        .filter((ev: any) => !(ev.start.toMillis() > dayEnd.toMillis() || ev.end.toMillis() < dayStart.toMillis()));
+    } catch {
+      // fallback to non-repeat events
     }
 
-    // fallback: 只处理非重复事件（简单过滤），并用 toMillis 做比较
     return (storedEvents ?? [])
       .map((ev) => {
         const s = DateTime.fromISO(ev.dtstart);
         const e = ev.dtend ? DateTime.fromISO(ev.dtend) : s;
-        return { id: ev.id, title: ev.title, start: s, end: e };
+        return { id: ev.id, title: ev.title, start: s, end: e, location: (ev as any).location ?? '' };
       })
       .filter((ev) => !(ev.start.toMillis() > dayEnd.toMillis() || ev.end.toMillis() < dayStart.toMillis()));
   }, [storedEvents, dayStart, dayEnd]);
 
-  // compute absolute positions for events
   const positionedEvents = useMemo(() => {
     return dayEvents.map((ev) => {
       const top = (ev.start.hour + ev.start.minute / 60) * HOUR_HEIGHT;
-      const height = Math.max(12, (ev.end.diff(ev.start, 'minutes').minutes / 60) * HOUR_HEIGHT);
+      const durationHours = Math.max(0.25, (ev.end.diff(ev.start, 'minutes').minutes || 15) / 60);
+      const height = Math.max(48, durationHours * HOUR_HEIGHT); // 提高最小高度，确保 title/time/location 可见
       return { ...ev, top, height };
     });
   }, [dayEvents]);
 
-  // ref to timeline scroll view so we can scroll to current time
   const scrollRef = useRef<ScrollView | null>(null);
   const [nowTop, setNowTop] = useState<number | null>(null);
 
-  useEffect(() => {
+  // scroll to "now" when viewing today (保留你已有逻辑)
+  useMemo(() => {
     const isToday = selected.hasSame(DateTime.local(), 'day');
     if (!isToday) {
-      // clear any existing indicator when not today
       setNowTop(null);
       return;
     }
-
-    // compute now position and scroll to it once on mount or when selected changes
-    const computeNow = () => {
-      const now = DateTime.local();
-      const top = (now.hour + now.minute / 60 + now.second / 3600) * HOUR_HEIGHT;
-      setNowTop(top);
-      // scroll so that now is a bit below top (some padding)
-      if (scrollRef.current) {
-        const offset = Math.max(0, top - HOUR_HEIGHT * 3);
-        // @ts-ignore - react-native ScrollView typing for scrollTo
-        scrollRef.current.scrollTo({ y: offset, animated: true });
-      }
-    };
-
-    computeNow();
-    // update every 30 seconds so the line moves
-    const id = setInterval(computeNow, 30 * 1000);
-    return () => clearInterval(id);
+    const now = DateTime.local();
+    const top = (now.hour + now.minute / 60 + now.second / 3600) * HOUR_HEIGHT;
+    setNowTop(top);
+    if (scrollRef.current) {
+      const offset = Math.max(0, top - HOUR_HEIGHT * 3);
+      // @ts-ignore
+      scrollRef.current.scrollTo({ y: offset, animated: true });
+    }
   }, [selected]);
 
   return (
     <View style={styles.container}>
+      {/* 顶部：月份/操作 行 */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/month')} style={styles.monthBackButton}>
           <Text style={styles.monthBackText}>{selected.toFormat('LLLL yyyy')}</Text>
         </TouchableOpacity>
-
-        {/* 右上控件：Week + Add（避免重叠，放入容器） */}
         <View style={styles.rightControls}>
           <TouchableOpacity onPress={() => router.push(`/week?date=${selected.toISODate()}`)} style={styles.headerAction} accessibilityRole="button">
             <Text style={styles.headerActionText}>Week</Text>
@@ -136,24 +126,27 @@ export default function DayView() {
         </View>
       </View>
 
-      {/* Week strip */}
+      {/* 周条：显示当前周的 7 天（点击跳转到对应的日视图） */}
       <View style={styles.weekStrip}>
-        {Array.from({ length: 7 }).map((_, i) => {
-          const d = selected.startOf('week').plus({ days: i });
-          const isSelected = d.hasSame(selected, 'day');
+        {days.map((d) => {
+          const key = d.toISODate();
+          const isSel = d.hasSame(selected, 'day');
           return (
-            <TouchableOpacity key={d.toISODate()} style={[styles.weekDay, isSelected && styles.weekDaySelected]} onPress={() => router.push(`/day?date=${d.toISODate()}`)}>
-              <Text style={[styles.weekDayText, isSelected && styles.weekDayTextSelected]}>{d.toFormat('ccc')}</Text>
-              <Text style={[styles.weekDayNumber, isSelected && styles.weekDayNumberSelected]}>{d.day}</Text>
+            <TouchableOpacity
+              key={key}
+              style={[styles.weekDay, isSel && styles.weekDaySelected]}
+              onPress={() => router.push(`/day?date=${key}`)}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.weekDayText, isSel && styles.weekDayTextSelected]}>{d.toFormat('ccc')}</Text>
+              <Text style={[styles.weekDayNumber, isSel && styles.weekDayNumberSelected]}>{d.day}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      {/* 时间轴区域（可滚动） */}
       <ScrollView ref={scrollRef} style={styles.timelineScroll} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={{ height: 24 * HOUR_HEIGHT, flexDirection: 'row', position: 'relative' }}>
-          {/* 小时标签列 */}
           <View style={styles.hoursColumn}>
             {Array.from({ length: 24 }).map((_, h) => (
               <View key={h} style={[styles.hourRow, { height: HOUR_HEIGHT }]}>
@@ -162,24 +155,25 @@ export default function DayView() {
             ))}
           </View>
 
-          {/* 事件显示区域（使用绝对定位） */}
           <View style={styles.eventsArea}>
             {Array.from({ length: 24 }).map((_, h) => (
               <View key={h} style={[styles.hourSlot, { height: HOUR_HEIGHT }]} />
             ))}
 
             {positionedEvents.map((ev) => (
-              <View key={ev.id} style={[styles.eventBlock, { top: ev.top, height: ev.height }]}>
+              <TouchableOpacity key={ev.id + '-' + ev.start.toISO()} activeOpacity={0.85} onPress={() => setSelectedEvent(ev)} style={[styles.eventBlock, { top: ev.top, height: ev.height }]}>
                 <Text style={styles.eventTitle}>{ev.title}</Text>
+                {ev.location ? <Text style={styles.eventLocation} numberOfLines={1}>{ev.location}</Text> : null}
                 <Text style={styles.eventTime}>{ev.start.toFormat('HH:mm')} - {ev.end.toFormat('HH:mm')}</Text>
-              </View>
+              </TouchableOpacity>
             ))}
-            {/* current time indicator */}
+            <EventDetail visible={selectedEvent !== null} event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+
             {nowTop !== null && selected.hasSame(DateTime.local(), 'day') && (
               <View pointerEvents="none" style={[styles.nowLine, { top: nowTop }]} />
             )}
           </View>
-          {/* global now-line + label placed relative to the full timeline row so label can sit to left */}
+
           {nowTop !== null && selected.hasSame(DateTime.local(), 'day') && (
             <>
               <View pointerEvents="none" style={[styles.nowLine, { top: nowTop }]} />
@@ -214,9 +208,12 @@ const styles = StyleSheet.create({
   nowLabel: { position: 'absolute', left: 64, minWidth: 56, paddingVertical: 2, paddingHorizontal: 6, backgroundColor: '#fff', borderRadius: 6, borderWidth: 1, borderColor: '#ff3b30', zIndex: 60 },
   nowLabelText: { color: '#ff3b30', fontWeight: '700', fontSize: 12 },
   hourSlot: { borderTopWidth: 1, borderTopColor: '#f2f2f2' },
+
   eventBlock: { position: 'absolute', left: 8, right: 8, backgroundColor: '#007bff', borderRadius: 6, padding: 8, zIndex: 10, opacity: 0.95 },
   eventTitle: { color: '#fff', fontWeight: '600' },
+  eventLocation: { color: '#eaf4ff', fontSize: 12, marginTop: 4, opacity: 0.95 },
   eventTime: { color: '#eaf4ff', fontSize: 12, marginTop: 4 },
+
   headerRow: { height: 44, justifyContent: 'center', paddingLeft: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
   monthBackButton: { paddingVertical: 6, paddingHorizontal: 8 },
   monthBackText: { fontSize: 16, fontWeight: '600', color: '#007bff' },

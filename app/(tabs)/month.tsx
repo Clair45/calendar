@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { useMemo, useState } from "react";
 import { Button, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useEvents } from '../../lib/hooks/useEvents';
+import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
 import { expandRecurrences, groupByDate, InputEvent } from "../utils/recurrence";
 
@@ -37,6 +38,7 @@ export default function MonthView() {
    const [pickerVisible, setPickerVisible] = useState(false);
    const [pickerYear, setPickerYear] = useState<number>(current.year);
    const [showCreateModal, setShowCreateModal] = useState(false);
+   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
 
   // 从持久化中读取事件
   const { items: storedEvents } = useEvents();
@@ -111,7 +113,9 @@ export default function MonthView() {
                 >
                   <Text style={[styles.dayNumber, isToday && styles.today]}>{day.day}</Text>
                   {dayEvents.slice(0, 2).map((e) => (
-                    <Text key={e.start.toISO()} numberOfLines={1} style={styles.eventText}>{e.title}</Text>
+                    <TouchableOpacity key={e.start.toISO()} onPress={() => setSelectedEvent(e)} activeOpacity={0.8}>
+                      <Text numberOfLines={1} style={styles.eventText}>{e.title}</Text>
+                    </TouchableOpacity>
                   ))}
                   {dayEvents.length > 2 && <Text style={styles.moreText}>+{dayEvents.length - 2} more</Text>}
                 </TouchableOpacity>
@@ -180,6 +184,8 @@ export default function MonthView() {
         </View>
       </Modal>
       <EventFormModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} initialDate={current} />
+      {/* 事件详情弹窗（查看 / 编辑 / 删除） */}
+      <EventDetail visible={selectedEvent !== null} event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     </View>
   );
 }

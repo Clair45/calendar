@@ -109,13 +109,14 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
        title: title.trim(),
        dtstart: start.toISO(),
        dtend: end.toISO(),
+       location: location.trim(), // <-- 新增 location 字段
        rrule,
        exdate: [],
        rdate: [],
        timezone: start.zoneName,
        notes: "",
      } as any);
-
+ 
      onClose();
    }
 
