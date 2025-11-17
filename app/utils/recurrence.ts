@@ -16,7 +16,9 @@ export interface InputEvent {
 
 //事件实例接口 - 展开后的具体事件实例
 export interface EventInstance {
+  // id 对应实例（instance id），originalId 指向原始父事件 id
   id: string;
+  originalId: string;
   title: string;
   start: DateTime;
   end: DateTime;
@@ -52,9 +54,11 @@ export function expandRecurrences(
       const occEnd = occStart.plus(duration);
       // overlap check with range
       if (occEnd <= rangeStart || occStart >= rangeEnd) return;
-      instances.push({ id: ev.id, title: ev.title, start: occStart, end: occEnd });
+      // 实例 id 使用父 id + occurrence 时间，避免与父事件 id 冲突
+      const instanceId = `${ev.id}::${occStart.toISO()}`;
+      instances.push({ id: instanceId, originalId: ev.id, title: ev.title, start: occStart, end: occEnd });
     };
-
+ 
     // 重复事件 - 使用RRULE展开
     if (ev.rrule) {
       try {
@@ -77,10 +81,11 @@ export function expandRecurrences(
     } else {
       // 单次事件：直接检查范围
       if (!(dtend <= rangeStart || dtstart >= rangeEnd)) {
-        instances.push({ id: ev.id, title: ev.title, start: dtstart, end: dtend });
+        // 对于非重复事件，instance id 与 originalId 均为父 id（兼容原逻辑）
+        instances.push({ id: ev.id, originalId: ev.id, title: ev.title, start: dtstart, end: dtend });
       }
     }
-
+ 
     // 处理额外日期 (RDATE)
     if (ev.rdate && ev.rdate.length) {
       for (const r of ev.rdate) {
@@ -90,20 +95,21 @@ export function expandRecurrences(
         } catch {}
       }
     }
-
+ 
     // 处理排除日期 (EXDATE)
     if (ev.exdate && ev.exdate.length) {
       const exSet = new Set(ev.exdate.map((s) => DateTime.fromISO(s, { zone }).toISO()));
       // 反向遍历 移除属于当前事件且开始时间匹配排除日期的事件实例
       for (let i = instances.length - 1; i >= 0; i--) {
-        if (instances[i].id === ev.id) {
+        // instances[i].originalId 对应父 id（单次事件 originalId === id）
+        if (instances[i].originalId === ev.id) {
           const iso = instances[i].start.toISO();
           if (exSet.has(iso)) instances.splice(i, 1);
         }
       }
     }
   }
-
+ 
   // Sort instances by start
   instances.sort((a, b) => a.start.toMillis() - b.start.toMillis());
   return instances;

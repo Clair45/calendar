@@ -58,12 +58,14 @@ export default function DayView() {
         .map((ins: any) => {
           const start = toDT(ins.start ?? ins.dtstart);
           const end = ins.end ?? ins.dtend ? toDT(ins.end ?? ins.dtend) : start.plus({ minutes: 30 });
+          const parentId = (ins as any).originalId ?? (ins as any).id;
           return {
             id: ins.id ?? `${ins.title}-${ins.start}`,
             title: ins.title ?? 'Event',
             start,
             end,
-            location: (ins as any).location ?? locMap[ins.id] ?? '',
+            // 优先使用 instance.originalId 回填 location（兼容单次事件 originalId === id）
+            location: (ins as any).location ?? locMap[parentId] ?? '',
           };
         })
         .filter((ev: any) => !(ev.start.toMillis() > dayEnd.toMillis() || ev.end.toMillis() < dayStart.toMillis()));

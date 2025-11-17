@@ -15,6 +15,7 @@ type DemoEvent = {
   start: DateTime;
   end: DateTime;
   location?: string;
+  originalId: string; // <- 新增：与 EventInstance 对齐
 };
 
 export default function WeekView() {
@@ -64,7 +65,15 @@ export default function WeekView() {
     return (expanded ?? []).map((ins: any) => {
       const s = toDT(ins.start ?? ins.dtstart);
       const e = ins.end ?? ins.dtend ? toDT(ins.end ?? ins.dtend) : s.plus({ minutes: 30 });
-      return { id: ins.id, title: ins.title, start: s, end: e, location: (ins as any).location ?? locMap[ins.id] ?? '' } as DemoEvent;
+      const parentId = (ins as any).originalId ?? (ins as any).id;
+      return {
+        id: ins.id,
+        title: ins.title,
+        start: s,
+        end: e,
+        location: (ins as any).location ?? locMap[parentId] ?? '',
+        originalId: parentId, // <- 填充 originalId
+      } as DemoEvent;
     });
   }, [storedEvents, weekStart]);
 

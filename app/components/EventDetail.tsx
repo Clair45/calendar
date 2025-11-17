@@ -19,7 +19,7 @@ type Props = {
 };
 
 export default function EventDetail({ visible, event, onClose }: Props) {
-  const { update, remove } = useEvents(); // 假定 useEvents 导出 update/remove；如不同请修改
+  const { items, update, remove } = useEvents(); // items 用于查找父事件以回填 exdate/rrule
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
@@ -38,42 +38,129 @@ export default function EventDetail({ visible, event, onClose }: Props) {
 
   async function handleSave() {
     if (!event) return;
-    const updated = {
-      ...(event as any),
+    const updatedFields = {
       title: title.trim(),
       location: location.trim(),
-      notes: notes,
+      notes,
     };
     try {
-      if (typeof update === "function") {
-        // update 期望 (id, payload)
-        await update(event.id, updated);
+      // 识别父事件 id（优先使用 originalId，回退到 id 前缀解析）
+      const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
+      const parsedParentFromId =
+        typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
+      const parentId = instOriginalId ?? parsedParentFromId ?? (event as any).id;
+
+      // 若找到父事件并且父 id != 当前 instance id，则更新父事件
+      const parent = (items ?? []).find((it: any) => it.id === parentId);
+      if (parent && parentId !== (event as any).id) {
+        // 直接更新父事件（会影响所有重复实例）
+        const payload = { ...(parent as any), ...updatedFields };
+        await update(parent.id, payload);
+      } else {
+        // 非重复或父事件未找到：按当前 id 更新
+        const payload = { ...(event as any), ...updatedFields };
+        await update((event as any).id, payload);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn("update error", e);
+      Alert.alert("更新失败", String(e?.message ?? e));
     }
     onClose();
   }
 
   function confirmDelete() {
     if (!event) return;
-    Alert.alert("删除事件", "确定要删除此事件吗？此操作不可撤销。", [
-      { text: "取消", style: "cancel" },
-      {
-        text: "删除",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            if (typeof remove === "function") {
-              await remove((event as any).id);
+
+    // 判断是否为由重复规则展开的实例：如果 instance.originalId 存在且与 id 不同，则为重复实例
+    const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
+    // 若 instance id 为 "parentId::occISO"，尝试从 id 解析 parent id
+    const parsedParentFromId =
+      typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
+    const parentId = instOriginalId ?? parsedParentFromId ?? (event as any).id;
+    const parent = items?.find((it: any) => it.id === parentId);
+    const isRecurring = Boolean(parent && parent.rrule);
+
+    if (!isRecurring) {
+      // 普通事件：简单确认删除
+      Alert.alert("删除事件", "确定要删除此事件吗？此操作不可撤销。", [
+        { text: "取消", style: "cancel" },
+        {
+          text: "删除",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (typeof remove === "function") await remove((event as any).id);
+            } catch (e) {
+              console.warn("remove error", e);
             }
-          } catch (e) {
-            console.warn("remove error", e);
-          }
-          onClose();
+            onClose();
+          },
         },
-      },
-    ]);
+      ]);
+      return;
+    }
+
+    // 重复事件：询问删除范围
+    Alert.alert(
+      "删除重复事件",
+      "请选择删除范围：仅删除当前这一次，还是删除此及之后的所有重复？",
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "仅删除此次",
+          onPress: async () => {
+            try {
+              // 如果找到了父事件，则把 occurrence 的 ISO 加入父事件 exdate（避免删除其它实例）
+              const occISO = (event as any).start
+                ? (DateTime as any).isDateTime?.((event as any).start)
+                  ? (event as any).start.toISO()
+                  : DateTime.fromISO(String((event as any).start)).toISO()
+                : DateTime.fromISO(String((event as any).dtstart ?? "")).toISO();
+              if (parent && typeof update === "function") {
+                const prevEx = Array.isArray(parent.exdate) ? parent.exdate : [];
+                const newEx = Array.from(new Set([...prevEx, occISO]));
+                await update(parent.id, { ...(parent as any), exdate: newEx });
+              } else {
+                // 回退：删除单条实例（如果没有父事件）
+                if (typeof remove === "function") await remove((event as any).id);
+              }
+            } catch (e) {
+              console.warn("remove single occurrence error", e);
+            }
+            onClose();
+          },
+        },
+        {
+          text: "删除此及之后",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // 把父事件的 rrule 截断到 occurrence 之前（保留该日期之前的实例）
+              const occStart = (DateTime as any).isDateTime?.((event as any).start)
+                ? (event as any).start
+                : DateTime.fromISO(String((event as any).start ?? (event as any).dtstart));
+              if (parent && parent.rrule && typeof update === "function") {
+                const until = occStart.minus({ seconds: 1 }).toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
+                let newRrule = String(parent.rrule);
+                if (/UNTIL=/i.test(newRrule)) {
+                  newRrule = newRrule.replace(/UNTIL=[^;]*/i, `UNTIL=${until}`);
+                } else {
+                  newRrule = `${newRrule};UNTIL=${until}`;
+                }
+                await update(parent.id, { ...(parent as any), rrule: newRrule });
+              } else {
+                // 如果无法找到 parent 或 parent.rrule，退而删除父事件本身（保守策略）
+                if (typeof remove === "function") await remove(parent ? parent.id : (event as any).id);
+              }
+            } catch (e) {
+              console.warn("remove future occurrences error", e);
+            }
+            onClose();
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   }
 
   if (!visible || !event) return null;
