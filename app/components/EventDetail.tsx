@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
     Alert,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -19,10 +20,11 @@ type Props = {
 };
 
 export default function EventDetail({ visible, event, onClose }: Props) {
-  const { items, update, remove } = useEvents(); // items 用于查找父事件以回填 exdate/rrule
+  const { items = [], update, remove } = useEvents();
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
+  const [showDelOptions, setShowDelOptions] = useState(false);
 
   useEffect(() => {
     if (event) {
@@ -36,6 +38,14 @@ export default function EventDetail({ visible, event, onClose }: Props) {
     }
   }, [event]);
 
+  // helper: determine parent id (original event id) for an instance
+  const resolveParentId = (ev: any) => {
+    const instOriginalId = ev?.originalId ?? ev?.parentId ?? null;
+    const parsedParentFromId =
+      typeof ev?.id === "string" && ev.id.includes("::") ? ev.id.split("::")[0] : null;
+    return instOriginalId ?? parsedParentFromId ?? ev?.id;
+  };
+
   async function handleSave() {
     if (!event) return;
     const updatedFields = {
@@ -43,45 +53,114 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       location: location.trim(),
       notes,
     };
-    try {
-      // 识别父事件 id（优先使用 originalId，回退到 id 前缀解析）
-      const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
-      const parsedParentFromId =
-        typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
-      const parentId = instOriginalId ?? parsedParentFromId ?? (event as any).id;
 
-      // 若找到父事件并且父 id != 当前 instance id，则更新父事件
-      const parent = (items ?? []).find((it: any) => it.id === parentId);
-      if (parent && parentId !== (event as any).id) {
-        // 直接更新父事件（会影响所有重复实例）
+    try {
+      const parentId = resolveParentId(event);
+      const parent = items.find((it: any) => it.id === parentId);
+
+      if (parent && parentId !== event.id) {
+        // instance -> update parent (affects all occurrences)
         const payload = { ...(parent as any), ...updatedFields };
+        // assume update(id, payload) signature
         await update(parent.id, payload);
       } else {
-        // 非重复或父事件未找到：按当前 id 更新
+        // non-recurring or direct parent update
         const payload = { ...(event as any), ...updatedFields };
-        await update((event as any).id, payload);
+        await update(event.id, payload);
       }
     } catch (e: any) {
       console.warn("update error", e);
       Alert.alert("更新失败", String(e?.message ?? e));
+    } finally {
+      onClose();
     }
-    onClose();
   }
+
+  // 抽成函数复用：仅删除此次（把 occ 加入 parent.exdate，或回退删除实例）
+  const handleDeleteSingleOccurrence = async () => {
+    if (!event) return;
+    try {
+      const parentId = resolveParentId(event);
+      const parent = items.find((it: any) => it.id === parentId);
+
+      const occISO =
+        event?.start
+          ? (DateTime as any).isDateTime?.(event.start)
+            ? event.start.toISO()
+            : DateTime.fromISO(String(event.start)).toISO()
+          : DateTime.fromISO(String(event?.dtstart ?? "")).toISO();
+
+      if (parent && typeof update === "function") {
+        const prevEx = Array.isArray(parent.exdate) ? parent.exdate : [];
+        const newEx = Array.from(new Set([...prevEx, occISO]));
+        await update(parent.id, { ...(parent as any), exdate: newEx });
+      } else {
+        // fallback: delete this id (for non-recurring)
+        if (typeof remove === "function") await remove(event.id);
+      }
+    } catch (e) {
+      console.warn("remove single occurrence error", e);
+      Alert.alert("删除失败", String(e));
+    } finally {
+      setShowDelOptions(false);
+      onClose();
+    }
+  };
+
+  // 抽成函数复用：删除此及之后（截断 parent.rrule 的 UNTIL）
+  const handleDeleteFutureOccurrences = async () => {
+    if (!event) return;
+    try {
+      const parentId = resolveParentId(event);
+      const parent = items.find((it: any) => it.id === parentId);
+
+      const occStart = (DateTime as any).isDateTime?.(event.start)
+        ? event.start
+        : DateTime.fromISO(String(event.start ?? event.dtstart));
+
+      if (parent && parent.rrule && typeof update === "function") {
+        const until = occStart.minus({ seconds: 1 }).toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
+        let newRrule = String(parent.rrule);
+        if (/UNTIL=/i.test(newRrule)) {
+          newRrule = newRrule.replace(/UNTIL=[^;]*/i, `UNTIL=${until}`);
+        } else {
+          newRrule = `${newRrule};UNTIL=${until}`;
+        }
+        await update(parent.id, { ...(parent as any), rrule: newRrule });
+      } else {
+        // fallback: delete parent or this id
+        if (typeof remove === "function") await remove(parent ? parent.id : event.id);
+      }
+    } catch (e) {
+      console.warn("remove future occurrences error", e);
+      Alert.alert("删除失败", String(e));
+    } finally {
+      setShowDelOptions(false);
+      onClose();
+    }
+  };
 
   function confirmDelete() {
     if (!event) return;
-
-    // 判断是否为由重复规则展开的实例：如果 instance.originalId 存在且与 id 不同，则为重复实例
-    const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
-    // 若 instance id 为 "parentId::occISO"，尝试从 id 解析 parent id
-    const parsedParentFromId =
-      typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
-    const parentId = instOriginalId ?? parsedParentFromId ?? (event as any).id;
-    const parent = items?.find((it: any) => it.id === parentId);
+    const parentId = resolveParentId(event);
+    const parent = items.find((it: any) => it.id === parentId);
     const isRecurring = Boolean(parent && parent.rrule);
 
     if (!isRecurring) {
-      // 普通事件：简单确认删除
+      if (Platform.OS === "web") {
+        const ok = (window as any).confirm("确定要删除此事件吗？此操作不可撤销。");
+        if (!ok) return;
+        (async () => {
+          try {
+            if (typeof remove === "function") await remove(event.id);
+          } catch (e) {
+            console.warn("remove error", e);
+            Alert.alert("删除失败", String(e));
+          }
+          onClose();
+        })();
+        return;
+      }
       Alert.alert("删除事件", "确定要删除此事件吗？此操作不可撤销。", [
         { text: "取消", style: "cancel" },
         {
@@ -89,7 +168,7 @@ export default function EventDetail({ visible, event, onClose }: Props) {
           style: "destructive",
           onPress: async () => {
             try {
-              if (typeof remove === "function") await remove((event as any).id);
+              if (typeof remove === "function") await remove(event.id);
             } catch (e) {
               console.warn("remove error", e);
             }
@@ -100,7 +179,12 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       return;
     }
 
-    // 重复事件：询问删除范围
+    // recurring
+    if (Platform.OS === "web") {
+      setShowDelOptions(true);
+      return;
+    }
+
     Alert.alert(
       "删除重复事件",
       "请选择删除范围：仅删除当前这一次，还是删除此及之后的所有重复？",
@@ -108,55 +192,12 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         { text: "取消", style: "cancel" },
         {
           text: "仅删除此次",
-          onPress: async () => {
-            try {
-              // 如果找到了父事件，则把 occurrence 的 ISO 加入父事件 exdate（避免删除其它实例）
-              const occISO = (event as any).start
-                ? (DateTime as any).isDateTime?.((event as any).start)
-                  ? (event as any).start.toISO()
-                  : DateTime.fromISO(String((event as any).start)).toISO()
-                : DateTime.fromISO(String((event as any).dtstart ?? "")).toISO();
-              if (parent && typeof update === "function") {
-                const prevEx = Array.isArray(parent.exdate) ? parent.exdate : [];
-                const newEx = Array.from(new Set([...prevEx, occISO]));
-                await update(parent.id, { ...(parent as any), exdate: newEx });
-              } else {
-                // 回退：删除单条实例（如果没有父事件）
-                if (typeof remove === "function") await remove((event as any).id);
-              }
-            } catch (e) {
-              console.warn("remove single occurrence error", e);
-            }
-            onClose();
-          },
+          onPress: handleDeleteSingleOccurrence,
         },
         {
           text: "删除此及之后",
           style: "destructive",
-          onPress: async () => {
-            try {
-              // 把父事件的 rrule 截断到 occurrence 之前（保留该日期之前的实例）
-              const occStart = (DateTime as any).isDateTime?.((event as any).start)
-                ? (event as any).start
-                : DateTime.fromISO(String((event as any).start ?? (event as any).dtstart));
-              if (parent && parent.rrule && typeof update === "function") {
-                const until = occStart.minus({ seconds: 1 }).toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
-                let newRrule = String(parent.rrule);
-                if (/UNTIL=/i.test(newRrule)) {
-                  newRrule = newRrule.replace(/UNTIL=[^;]*/i, `UNTIL=${until}`);
-                } else {
-                  newRrule = `${newRrule};UNTIL=${until}`;
-                }
-                await update(parent.id, { ...(parent as any), rrule: newRrule });
-              } else {
-                // 如果无法找到 parent 或 parent.rrule，退而删除父事件本身（保守策略）
-                if (typeof remove === "function") await remove(parent ? parent.id : (event as any).id);
-              }
-            } catch (e) {
-              console.warn("remove future occurrences error", e);
-            }
-            onClose();
-          },
+          onPress: handleDeleteFutureOccurrences,
         },
       ],
       { cancelable: true }
@@ -212,6 +253,32 @@ export default function EventDetail({ visible, event, onClose }: Props) {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* web 删除选项 modal */}
+        {Platform.OS === "web" && showDelOptions && (
+          <View style={styles.webDelBackdrop}>
+            <View style={styles.webDelBox}>
+              <Text style={styles.webDelTitle}>删除重复事件</Text>
+              <Text style={styles.webDelDesc}>
+                请选择删除范围：仅删除当前这一次，还是删除此及之后的所有重复？
+              </Text>
+              <View style={{ flexDirection: "row", marginTop: 12 }}>
+                <TouchableOpacity
+                  style={[styles.webDelBtn, { flex: 1, marginRight: 8 }]}
+                  onPress={handleDeleteSingleOccurrence}
+                >
+                  <Text>仅删除此次</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.webDelBtn, { flex: 1 }]} onPress={handleDeleteFutureOccurrences}>
+                  <Text style={{ color: "#ff3b30" }}>删除此及之后</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity onPress={() => setShowDelOptions(false)} style={{ marginTop: 10 }}>
+                <Text>取消</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -237,4 +304,10 @@ const styles = StyleSheet.create({
   saveBtn: { backgroundColor: "#007bff" },
   deleteText: { color: "#ff3b30", fontWeight: "600" },
   saveText: { color: "#fff", fontWeight: "600" },
+
+  webDelBackdrop: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", alignItems: "center", zIndex: 9999 },
+  webDelBox: { width: 420, backgroundColor: "#fff", padding: 16, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10 },
+  webDelTitle: { fontSize: 16, fontWeight: "600" },
+  webDelDesc: { marginTop: 8, color: "#444" },
+  webDelBtn: { padding: 10, borderRadius: 6, backgroundColor: "#f2f2f2", alignItems: "center" },
 });
