@@ -12,6 +12,7 @@ import {
     View,
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
+import InlineDateTimePicker, { CalendarPicker, TimePicker, pickerStyles } from "./InlineDateTimePicker";
 
 type Props = {
   visible: boolean;
@@ -25,16 +26,24 @@ export default function EventDetail({ visible, event, onClose }: Props) {
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
   const [showDelOptions, setShowDelOptions] = useState(false);
+  const [startDT, setStartDT] = useState<DateTime | null>(null);
+  const [endDT, setEndDT] = useState<DateTime | null>(null);
+  const [showCalendarFor, setShowCalendarFor] = useState<"start" | "end" | null>(null);
+  const [showTimePicker, setShowTimePicker] = useState<"start" | "end" | null>(null);
 
   useEffect(() => {
     if (event) {
       setTitle(event.title ?? "");
       setLocation((event as any).location ?? "");
       setNotes((event as any).notes ?? "");
+      setStartDT((DateTime as any).isDateTime?.(event.start) ? event.start : DateTime.fromISO(String(event.start ?? event.dtstart)));
+      setEndDT((DateTime as any).isDateTime?.(event.end) ? event.end : DateTime.fromISO(String(event.end ?? event.dtend ?? event.start ?? event.dtstart)));
     } else {
       setTitle("");
       setLocation("");
       setNotes("");
+      setStartDT(null);
+      setEndDT(null);
     }
   }, [event]);
 
@@ -48,23 +57,22 @@ export default function EventDetail({ visible, event, onClose }: Props) {
 
   async function handleSave() {
     if (!event) return;
-    const updatedFields = {
+    const updatedFields: any = {
       title: title.trim(),
       location: location.trim(),
       notes,
     };
+    if (startDT) updatedFields.dtstart = startDT.toISO();
+    if (endDT) updatedFields.dtend = endDT.toISO();
 
     try {
       const parentId = resolveParentId(event);
       const parent = items.find((it: any) => it.id === parentId);
 
       if (parent && parentId !== event.id) {
-        // instance -> update parent (affects all occurrences)
         const payload = { ...(parent as any), ...updatedFields };
-        // assume update(id, payload) signature
         await update(parent.id, payload);
       } else {
-        // non-recurring or direct parent update
         const payload = { ...(event as any), ...updatedFields };
         await update(event.id, payload);
       }
@@ -204,10 +212,21 @@ export default function EventDetail({ visible, event, onClose }: Props) {
     );
   }
 
-  if (!visible || !event) return null;
+  const pickDate = (date: DateTime, which: "start" | "end") => {
+    if (which === "start") {
+      setStartDT(date);
+      if (endDT && date.toMillis() >= endDT.toMillis()) {
+        const candidate = date.plus({ minutes: 5 });
+        const endOfDay = date.set({ hour: 23, minute: 59, second: 0, millisecond: 0 });
+        setEndDT(candidate.day !== date.day ? endOfDay : candidate);
+      }
+    } else {
+      setEndDT(date);
+    }
+    setShowCalendarFor(null);
+  };
 
-  const start = (DateTime as any).isDateTime?.(event.start) ? event.start : DateTime.fromISO(String(event.start));
-  const end = (DateTime as any).isDateTime?.(event.end) ? event.end : DateTime.fromISO(String(event.end));
+  if (!visible || !event) return null;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -229,10 +248,63 @@ export default function EventDetail({ visible, event, onClose }: Props) {
             <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholder="地点" />
 
             <Text style={styles.label}>开始 / 结束</Text>
-            <View style={styles.row}>
-              <Text>{start.toFormat("yyyy-LL-dd HH:mm")}</Text>
-              <Text>{end.toFormat("yyyy-LL-dd HH:mm")}</Text>
-            </View>
+            <InlineDateTimePicker
+              start={startDT ?? DateTime.local()}
+              end={endDT ?? (startDT ? startDT.plus({ hours: 1 }) : DateTime.local().plus({ hours: 1 }))}
+              onChange={({ start, end }) => {
+                setStartDT(start);
+                setEndDT(end);
+              }}
+            />
+            {showCalendarFor === "start" && (
+              <View style={pickerStyles.panelWrap}>
+                <CalendarPicker
+                  visible={true}
+                  value={startDT ?? DateTime.local()}
+                  onPick={(d): void => pickDate(d, "start")}
+                  onClose={(): void => setShowCalendarFor(null)}
+                />
+              </View>
+            )}
+            {showTimePicker === "start" && (
+              <View style={pickerStyles.panelWrap}>
+                <TimePicker
+                  visible={true}
+                  which="start"
+                  base={startDT ?? DateTime.local()}
+                  onConfirm={(d) => {
+                    setStartDT(d);
+                    if (endDT && d.toMillis() >= endDT.toMillis()) {
+                      const candidate = d.plus({ minutes: 5 });
+                      const endOfDay = d.set({ hour: 23, minute: 59, second: 0, millisecond: 0 });
+                      setEndDT(candidate.day !== d.day ? endOfDay : candidate);
+                    }
+                  }}
+                  onClose={(): void => setShowTimePicker(null)}
+                />
+              </View>
+            )}
+            {showCalendarFor === "end" && (
+              <View style={pickerStyles.panelWrap}>
+                <CalendarPicker
+                  visible={true}
+                  value={endDT ?? DateTime.local()}
+                  onPick={(d): void => pickDate(d, "end")}
+                  onClose={(): void => setShowCalendarFor(null)}
+                />
+              </View>
+            )}
+            {showTimePicker === "end" && (
+              <View style={pickerStyles.panelWrap}>
+                <TimePicker
+                  visible={true}
+                  which="end"
+                  base={endDT ?? DateTime.local()}
+                  onConfirm={(d) => setEndDT(d)}
+                  onClose={(): void => setShowTimePicker(null)}
+                />
+              </View>
+            )}
 
             <Text style={styles.label}>备注</Text>
             <TextInput

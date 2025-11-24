@@ -50,10 +50,12 @@ export default function DayView() {
       const locMap: Record<string, string> = {};
       for (const ev of input) if (ev.id) locMap[ev.id] = ev.location ?? '';
 
-      const instances = expandRecurrences(input, dayStart, dayEnd) ?? [];
+      // 扩展范围以包含前一天开始但延续到今日的事件
+      const instances = expandRecurrences(input, dayStart.minus({ days: 1 }), dayEnd.plus({ days: 1 })) ?? [];
 
-      // normalize instances and fill location fallback
       const toDT = (v: any) => ((DateTime as any).isDateTime?.(v) ? v : DateTime.fromISO(String(v)));
+
+      // 归一并裁剪到当前 day 的显示区间（保证跨天事件在今日显示当天片段）
       return (instances ?? [])
         .map((ins: any) => {
           const start = toDT(ins.start ?? ins.dtstart);
@@ -64,11 +66,17 @@ export default function DayView() {
             title: ins.title ?? 'Event',
             start,
             end,
-            // 优先使用 instance.originalId 回填 location（兼容单次事件 originalId === id）
             location: (ins as any).location ?? locMap[parentId] ?? '',
           };
         })
-        .filter((ev: any) => !(ev.start.toMillis() > dayEnd.toMillis() || ev.end.toMillis() < dayStart.toMillis()));
+        // 过滤与当日有交集的事件
+        .filter((ev: any) => ev.start < dayEnd && ev.end > dayStart)
+        // 裁剪到当天显示区间
+        .map((ev: any) => {
+          const clippedStart = ev.start < dayStart ? dayStart : ev.start;
+          const clippedEnd = ev.end > dayEnd ? dayEnd : ev.end;
+          return { ...ev, start: clippedStart, end: clippedEnd };
+        });
     } catch {
       // fallback to non-repeat events
     }
@@ -79,7 +87,12 @@ export default function DayView() {
         const e = ev.dtend ? DateTime.fromISO(ev.dtend) : s;
         return { id: ev.id, title: ev.title, start: s, end: e, location: (ev as any).location ?? '' };
       })
-      .filter((ev) => !(ev.start.toMillis() > dayEnd.toMillis() || ev.end.toMillis() < dayStart.toMillis()));
+      .filter((ev) => ev.start < dayEnd && ev.end > dayStart)
+      .map((ev) => {
+        const clippedStart = ev.start < dayStart ? dayStart : ev.start;
+        const clippedEnd = ev.end > dayEnd ? dayEnd : ev.end;
+        return { ...ev, start: clippedStart, end: clippedEnd };
+      });
   }, [storedEvents, dayStart, dayEnd]);
 
   const positionedEvents = useMemo(() => {

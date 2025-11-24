@@ -84,24 +84,32 @@ export default function WeekView() {
     for (const d of days) {
       const key = d.toISODate();
       if (!key) continue;
-      const evs = (eventsByDate[key] ?? []).map((x: any) => ({
-        id: x.id,
-        title: x.title,
-        start: x.start,
-        end: x.end,
-        location: (x as any).location ?? '',
-      })) as DemoEvent[];
+      const dayStart = d.startOf("day");
+      const dayEnd = d.endOf("day");
+
+      // 找出与该日有时间交集的所有实例（包含跨天事件）
+      const evs = (instances ?? []).filter((ev: any) => {
+        // ev.start < dayEnd && ev.end > dayStart 说明有交集
+        return ev.start < dayEnd && ev.end > dayStart;
+      }) as DemoEvent[];
+
       out[key] = evs.map((ev) => {
-        const startHour = ev.start.hour + ev.start.minute / 60;
-        const durationMins = Math.max(15, ev.end.diff(ev.start, "minutes").minutes || 15);
+        // 裁剪到当前 day 的可见区间
+        const clippedStart = ev.start < dayStart ? dayStart : ev.start;
+        const clippedEnd = ev.end > dayEnd ? dayEnd : ev.end;
+
+        const startHour = clippedStart.hour + clippedStart.minute / 60 + clippedStart.second / 3600;
+        const durationMins = Math.max(15, clippedEnd.diff(clippedStart, "minutes").minutes || 15);
         const durationHours = durationMins / 60;
         const top = startHour * HOUR_HEIGHT;
         const height = Math.max(40, durationHours * HOUR_HEIGHT);
-        return { ...ev, top, height };
+
+        // 返回时覆盖 start/end 为裁剪后的时间，便于渲染时显示正确的时段（也保留原 location 等）
+        return { ...ev, start: clippedStart, end: clippedEnd, top, height };
       });
     }
     return out;
-  }, [days, eventsByDate]);
+  }, [days, instances]);
 
   return (
     <View style={styles.container}>

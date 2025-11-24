@@ -5,7 +5,7 @@ import { Button, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity
 import { useEvents } from '../../lib/hooks/useEvents';
 import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
-import { expandRecurrences, groupByDate, InputEvent } from "../utils/recurrence";
+import { expandRecurrences, InputEvent } from "../utils/recurrence";
 
 /**
  * 生成月份日历矩阵（6行7列的日期网格）
@@ -62,9 +62,51 @@ export default function MonthView() {
   const matrixStart = matrix[0][0].startOf("day");
   const matrixEnd = matrix[5][6].endOf("day");
 
-  // 展开重复事件，获取在显示范围内的所有事件实例
-  const instances = useMemo(() => expandRecurrences(inputEvents, matrixStart, matrixEnd), [inputEvents, matrixStart, matrixEnd]);
-  const eventsByDate = useMemo(() => groupByDate(instances, "local"), [instances]); //按日期分组事件
+  // 展开重复事件（扩展边界以包含跨天事件），并把每个实例按与日格的交集拆分到对应日期
+  const instances = useMemo(
+    () => expandRecurrences(inputEvents, matrixStart.minus({ days: 1 }), matrixEnd.plus({ days: 1 })),
+    [inputEvents, matrixStart, matrixEnd]
+  );
+
+  const eventsByDate = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    if (!instances) return map;
+
+    const toDT = (v: any) => ((DateTime as any).isDateTime?.(v) ? v : DateTime.fromISO(String(v)));
+
+    for (const ins of instances) {
+      // 推荐：直接使用 expandRecurrences 返回的 start/end
+      const s = toDT((ins as any).start ?? (ins as any).dtstart);
+      const e =
+        (ins as any).end != null || (ins as any).dtend != null
+          ? toDT((ins as any).end ?? (ins as any).dtend)
+          : s.plus({ minutes: 30 });
+
+      // 计算事件覆盖的天区间，并把裁剪后的片段放到每一天对应的 key
+      let cur = s.startOf("day");
+      const last = e.startOf("day");
+      while (cur <= last) {
+        if (cur >= matrixStart.startOf("day") && cur <= matrixEnd.startOf("day")) {
+          const key = cur.toISODate();
+          const dayStart = cur.startOf("day");
+          const dayEnd = cur.endOf("day");
+          const clippedStart = s < dayStart ? dayStart : s;
+          const clippedEnd = e > dayEnd ? dayEnd : e;
+          map[key] = map[key] ?? [];
+          map[key].push({
+            id: ins.id ?? `${ins.title}-${ins.start}`,
+            title: ins.title ?? "Event",
+            start: clippedStart,
+            end: clippedEnd,
+            location: (ins as any).location ?? (ins as any).location ?? "",
+            original: ins,
+          });
+        }
+        cur = cur.plus({ days: 1 });
+      }
+    }
+    return map;
+  }, [instances, matrixStart, matrixEnd]);
   const router = useRouter();
 
   return (
