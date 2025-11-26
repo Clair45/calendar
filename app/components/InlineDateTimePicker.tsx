@@ -1,4 +1,3 @@
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { DateTime } from "luxon";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -7,10 +6,16 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+
+// 动态引入原生 picker，避免在 web 打包时解析原生模块
+let RNDateTimePicker: any = null;
+if (Platform.OS !== "web") {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  RNDateTimePicker = require("@react-native-community/datetimepicker").default;
+}
 
 type Props = {
   start: DateTime | null;
@@ -39,33 +44,42 @@ const TIME_OPTIONS = buildTimeOptions();
 export default function InlineDateTimePicker({ start, end, onChange, startInvalid, endInvalid }: Props) {
   const iosOrAndroid = Platform.OS !== "web";
 
+  // 兜底非空，方便渲染
+  const safeStart = start ?? DateTime.local();
+  const safeEnd = end ?? safeStart.plus({ minutes: 30 });
+
   const handleWebChange = (value: string, which: "start" | "end") => {
     if (!value) return;
+    // web 的 input[type=datetime-local] 返回形如 "2025-11-26T14:30"
     const dt = DateTime.fromISO(value);
     if (!dt.isValid) return;
-    if (which === "start") onChange({ start: dt, end: end ?? dt.plus({ minutes: 30 }) });
-    else onChange({ start: start ?? dt.minus({ minutes: 30 }), end: dt });
+    if (which === "start") onChange({ start: dt, end: safeEnd });
+    else onChange({ start: safeStart, end: dt });
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.row}>
         <Text style={styles.label}>开始</Text>
+
         {Platform.OS === "web" ? (
-          <TextInput
-            style={[styles.input, startInvalid && styles.invalidText]}
-            value={
-              start
-                ? start.toISO({ suppressMilliseconds: true, includeOffset: false }).slice(0, 16)
-                : ""
-            }
-            onChangeText={(v) => handleWebChange(v, "start")}
-            placeholder="YYYY-MM-DDTHH:mm"
+          // 使用原生 HTML datetime-local，带浏览器的日历/时间选择器
+          <input
+            type="datetime-local"
+            style={{
+              flex: 1,
+              padding: 8,
+              borderRadius: 6,
+              border: "1px solid #eee",
+              background: "white",
+            }}
+            value={safeStart.toISO({ suppressMilliseconds: true, includeOffset: false }).slice(0, 16)}
+            onChange={(e: any) => handleWebChange(e.target.value, "start")}
           />
         ) : (
           <TouchableOpacity style={styles.inputBtn}>
             <Text style={[styles.inputText, startInvalid && styles.invalidText]}>
-              {start ? start.toFormat("yyyy-LL-dd HH:mm") : "选择开始时间"}
+              {safeStart.toFormat("yyyy-LL-dd HH:mm")}
             </Text>
           </TouchableOpacity>
         )}
@@ -73,43 +87,52 @@ export default function InlineDateTimePicker({ start, end, onChange, startInvali
 
       <View style={styles.row}>
         <Text style={styles.label}>结束</Text>
+
         {Platform.OS === "web" ? (
-          <TextInput
-            style={[styles.input, endInvalid && styles.invalidText]}
-            value={end ? end.toISO({ suppressMilliseconds: true, includeOffset: false }).slice(0, 16) : ""}
-            onChangeText={(v) => handleWebChange(v, "end")}
-            placeholder="YYYY-MM-DDTHH:mm"
+          <input
+            type="datetime-local"
+            style={{
+              flex: 1,
+              padding: 8,
+              borderRadius: 6,
+              border: "1px solid #eee",
+              background: "white",
+            }}
+            value={safeEnd.toISO({ suppressMilliseconds: true, includeOffset: false }).slice(0, 16)}
+            onChange={(e: any) => handleWebChange(e.target.value, "end")}
           />
         ) : (
           <TouchableOpacity style={styles.inputBtn}>
             <Text style={[styles.inputText, endInvalid && styles.invalidText]}>
-              {end ? end.toFormat("yyyy-LL-dd HH:mm") : "选择结束时间"}
+              {safeEnd.toFormat("yyyy-LL-dd HH:mm")}
             </Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {iosOrAndroid && start && end && (
+      {/* 只有原生平台才渲染原生 picker */}
+      {iosOrAndroid && RNDateTimePicker && start && end && (
         <View>
-          <DateTimePicker
-            value={start.toJSDate()}
+          <RNDateTimePicker
+            value={safeStart.toJSDate()}
             mode="datetime"
             display="default"
-            onChange={(_, d) => {
+            onChange={(_event: any, d?: Date) => {
               if (!d) return;
               const s = DateTime.fromJSDate(d);
-              const newEnd = end < s ? s.plus({ hours: 1 }) : end;
+              // 使用 millis 比较 DateTime（避免使用 < / >）
+              const newEnd = safeEnd.toMillis() < s.toMillis() ? s.plus({ hours: 1 }) : safeEnd;
               onChange({ start: s, end: newEnd });
             }}
           />
-          <DateTimePicker
-            value={end.toJSDate()}
+          <RNDateTimePicker
+            value={safeEnd.toJSDate()}
             mode="datetime"
             display="default"
-            onChange={(_, d) => {
+            onChange={(_event: any, d?: Date) => {
               if (!d) return;
               const e = DateTime.fromJSDate(d);
-              onChange({ start: start, end: e });
+              onChange({ start: safeStart, end: e });
             }}
           />
         </View>
@@ -233,7 +256,8 @@ export function TimePicker({
       </View>
 
       <ScrollView
-        ref={(r) => (timeScrollRef.current = r)}
+        // 推荐：直接传入 ref 对象（更稳定，不会每次渲染创建新函数）
+        ref={timeScrollRef}
         showsVerticalScrollIndicator={false}
         snapToInterval={TIME_ITEM_HEIGHT}
         decelerationRate="fast"
