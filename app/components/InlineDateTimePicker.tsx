@@ -2,14 +2,14 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { DateTime } from "luxon";
 import { useEffect, useRef, useState } from "react";
 import {
-    Dimensions,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 type Props = {
@@ -17,6 +17,8 @@ type Props = {
   end: DateTime | null;
   onChange: (args: { start: DateTime; end: DateTime }) => void;
   allDay?: boolean;
+  startInvalid?: boolean;
+  endInvalid?: boolean;
 };
 
 const { height: SCREEN_H } = Dimensions.get("window");
@@ -34,7 +36,7 @@ function buildTimeOptions(): string[] {
 }
 const TIME_OPTIONS = buildTimeOptions();
 
-export default function InlineDateTimePicker({ start, end, onChange }: Props) {
+export default function InlineDateTimePicker({ start, end, onChange, startInvalid, endInvalid }: Props) {
   const iosOrAndroid = Platform.OS !== "web";
 
   const handleWebChange = (value: string, which: "start" | "end") => {
@@ -51,7 +53,7 @@ export default function InlineDateTimePicker({ start, end, onChange }: Props) {
         <Text style={styles.label}>开始</Text>
         {Platform.OS === "web" ? (
           <TextInput
-            style={styles.input}
+            style={[styles.input, startInvalid && styles.invalidText]}
             value={
               start
                 ? start.toISO({ suppressMilliseconds: true, includeOffset: false }).slice(0, 16)
@@ -62,7 +64,9 @@ export default function InlineDateTimePicker({ start, end, onChange }: Props) {
           />
         ) : (
           <TouchableOpacity style={styles.inputBtn}>
-            <Text style={styles.inputText}>{start ? start.toFormat("yyyy-LL-dd HH:mm") : "选择开始时间"}</Text>
+            <Text style={[styles.inputText, startInvalid && styles.invalidText]}>
+              {start ? start.toFormat("yyyy-LL-dd HH:mm") : "选择开始时间"}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -71,14 +75,16 @@ export default function InlineDateTimePicker({ start, end, onChange }: Props) {
         <Text style={styles.label}>结束</Text>
         {Platform.OS === "web" ? (
           <TextInput
-            style={styles.input}
+            style={[styles.input, endInvalid && styles.invalidText]}
             value={end ? end.toISO({ suppressMilliseconds: true, includeOffset: false }).slice(0, 16) : ""}
             onChangeText={(v) => handleWebChange(v, "end")}
             placeholder="YYYY-MM-DDTHH:mm"
           />
         ) : (
           <TouchableOpacity style={styles.inputBtn}>
-            <Text style={styles.inputText}>{end ? end.toFormat("yyyy-LL-dd HH:mm") : "选择结束时间"}</Text>
+            <Text style={[styles.inputText, endInvalid && styles.invalidText]}>
+              {end ? end.toFormat("yyyy-LL-dd HH:mm") : "选择结束时间"}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -288,6 +294,9 @@ const styles = StyleSheet.create({
   timeItemText: { fontSize: 16 },
   timeItemSel: { backgroundColor: "#eef6ff" },
   timeItemTextSel: { color: "#007bff", fontWeight: "700" },
+
+  // 无效时间文本样式：红色并划线
+  invalidText: { color: "#c00", textDecorationLine: "line-through" },
 });
 // 导出样式供其它组件复用，保持外观一致
 export const pickerStyles = styles;

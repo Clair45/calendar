@@ -1,24 +1,18 @@
 import { DateTime } from "luxon";
 import { useEffect, useState } from "react";
 import {
-    Alert,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
 import InlineDateTimePicker, { CalendarPicker, TimePicker, pickerStyles } from "./InlineDateTimePicker";
-
-type Props = {
-  visible: boolean;
-  event: any | null;
-  onClose: () => void;
-};
 
 export default function EventDetail({ visible, event, onClose }: Props) {
   const { items = [], update, remove } = useEvents();
@@ -30,6 +24,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
   const [endDT, setEndDT] = useState<DateTime | null>(null);
   const [showCalendarFor, setShowCalendarFor] = useState<"start" | "end" | null>(null);
   const [showTimePicker, setShowTimePicker] = useState<"start" | "end" | null>(null);
+
+  const invalidTime = Boolean(startDT && endDT && endDT.toMillis() <= startDT.toMillis());
 
   useEffect(() => {
     if (event) {
@@ -56,6 +52,10 @@ export default function EventDetail({ visible, event, onClose }: Props) {
   };
 
   async function handleSave() {
+    if (invalidTime) {
+      Alert.alert("结束时间无效", "结束时间必须晚于开始时间。请修改后保存。");
+      return;
+    }
     if (!event) return;
     const updatedFields: any = {
       title: title.trim(),
@@ -255,7 +255,10 @@ export default function EventDetail({ visible, event, onClose }: Props) {
                 setStartDT(start);
                 setEndDT(end);
               }}
+              startInvalid={false}
+              endInvalid={invalidTime}
             />
+            {invalidTime && <Text style={styles.errorText}>结束时间必须晚于开始时间</Text>}
             {showCalendarFor === "start" && (
               <View style={pickerStyles.panelWrap}>
                 <CalendarPicker
@@ -376,6 +379,12 @@ const styles = StyleSheet.create({
   saveBtn: { backgroundColor: "#007bff" },
   deleteText: { color: "#ff3b30", fontWeight: "600" },
   saveText: { color: "#fff", fontWeight: "600" },
+
+  errorText: {
+    color: "#D32F2F",       // 红色提示
+    fontSize: 12,
+    marginTop: 6,
+  },
 
   webDelBackdrop: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", alignItems: "center", zIndex: 9999 },
   webDelBox: { width: 420, backgroundColor: "#fff", padding: 16, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10 },
