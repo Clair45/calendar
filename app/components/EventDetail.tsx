@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Modal,
@@ -13,6 +13,13 @@ import {
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
 import InlineDateTimePicker, { CalendarPicker, TimePicker, pickerStyles } from "./InlineDateTimePicker";
+
+type Props = {
+  visible: boolean;
+  event: any | null;
+  onClose: () => void;
+};
+
 
 export default function EventDetail({ visible, event, onClose }: Props) {
   const { items = [], update, remove } = useEvents();
@@ -51,22 +58,6 @@ export default function EventDetail({ visible, event, onClose }: Props) {
     return instOriginalId ?? parsedParentFromId ?? ev?.id;
   };
 
-  // 计算可显示的重复说明（中文）
-  const recurrenceLabel = useMemo(() => {
-    if (!event) return "";
-    const parentId = resolveParentId(event);
-    const parent = items.find((it: any) => it.id === parentId) ?? event;
-    const raw = String(parent?.rrule ?? "").toUpperCase();
-    if (!raw) return "";
-    const m = raw.match(/FREQ=([^;]+)/i);
-    if (!m) return "重复";
-    const freq = (m[1] ?? "").toUpperCase();
-    if (freq === "DAILY") return "重复：每天";
-    if (freq === "WEEKLY") return "重复：每周";
-    if (freq === "MONTHLY") return "重复：每月";
-    return `重复：${freq.toLowerCase()}`;
-  }, [event, items]);
-
   async function handleSave() {
     if (invalidTime) {
       Alert.alert("结束时间无效", "结束时间必须晚于开始时间。请修改后保存。");
@@ -81,17 +72,146 @@ export default function EventDetail({ visible, event, onClose }: Props) {
     if (startDT) updatedFields.dtstart = startDT.toISO();
     if (endDT) updatedFields.dtend = endDT.toISO();
 
+    // helper: normalize to DateTime
+    const toDT = (v: any) => ((DateTime as any).isDateTime?.(v) ? v : v ? DateTime.fromISO(String(v)) : null);
+
     try {
       const parentId = resolveParentId(event);
       const parent = items.find((it: any) => it.id === parentId);
 
-      if (parent && parentId !== event.id) {
-        const payload = { ...(parent as any), ...updatedFields };
-        await update(parent.id, payload);
-      } else {
-        const payload = { ...(event as any), ...updatedFields };
-        await update(event.id, payload);
+      // 非重复或直接编辑父事件本身：直接更新
+      if (!parent || parentId === event.id || !parent.rrule) {
+        const targetId = parent && parentId !== event.id ? parent.id : event.id;
+        const base = parent && parentId !== event.id ? parent : event;
+        const payload = { ...(base as any), ...updatedFields };
+        await update(targetId, payload);
+        onClose();
+        return;
       }
+
+      // parent 存在且为重复系列，并且当前是某次 instance（parentId !== event.id）
+      // 目标：保留每个实例的日期，只替换 time-of-day；时长严格依据用户输入：
+      //  - 若用户同时提供 startDT 与 endDT -> 使用两者差值（统一应用到所有实例）
+      //  - 否则对每个子实例保持其原有持续时长
+      const newStartRef = startDT ?? toDT(event.start ?? event.dtstart);
+      const newEndRef = endDT ?? toDT(event.end ?? event.dtend ?? event.start ?? event.dtstart);
+
+      if (!newStartRef || !newStartRef.isValid) {
+        Alert.alert("错误", "无效的开始时间。");
+        return;
+      }
+
+      // 计算全局时长（仅当用户同时提供 startDT 和 endDT）
+      let globalDurationMins: number | null = null;
+      if (startDT && endDT) {
+        const diff = newEndRef.diff(newStartRef, "minutes").minutes;
+        if (!isNaN(diff) && diff > 0) globalDurationMins = Math.round(diff);
+        else {
+          Alert.alert("错误", "结束时间必须晚于开始时间。");
+          return;
+        }
+      }
+
+      // 计算 parent 原始日期参考
+      const parentStartOrig = toDT(parent.dtstart ?? parent.start ?? parent.dtstart) ?? newStartRef;
+
+      // newParentStart：保留 parent 日期，替换 time-of-day 为 newStartRef 的时分秒
+      const newParentStart = parentStartOrig.set({
+        hour: newStartRef.hour,
+        minute: newStartRef.minute,
+        second: newStartRef.second ?? 0,
+        millisecond: newStartRef.millisecond ?? 0,
+      });
+
+      // newParentEnd：若 globalDurationMins 存在则用它，否则保持 parent 原有持续时长（若有）
+      let newParentEnd = null;
+      if (globalDurationMins !== null) {
+        newParentEnd = newParentStart.plus({ minutes: globalDurationMins });
+      } else if (parent.dtend) {
+        const parentEndOrig = toDT(parent.dtend);
+        if (parentEndOrig && parentStartOrig && parentEndOrig.isValid && parentStartOrig.isValid) {
+          const parentDuration = Math.round(parentEndOrig.diff(parentStartOrig, "minutes").minutes || 0);
+          newParentEnd = newParentStart.plus({ minutes: Math.max(1, parentDuration) });
+        }
+      }
+
+      // 更新 parent（替换 dtstart；若 newParentEnd 存在则一并替换 dtend）
+      const parentPayload: any = { ...(parent as any), ...(updatedFields || {}) };
+      parentPayload.dtstart = newParentStart.toISO();
+      if (newParentEnd) parentPayload.dtend = newParentEnd.toISO();
+      // 同步 exdate/rdate 的 time-of-day（保留日期部分）
+      const mapDatesToNewTime = (arr: any[] | undefined) => {
+        if (!Array.isArray(arr)) return arr || [];
+        return arr
+          .map((iso) => {
+            try {
+              const d = toDT(iso);
+              if (!d || !d.isValid) return null;
+              return d
+                .set({
+                  hour: newParentStart.hour,
+                  minute: newParentStart.minute,
+                  second: newParentStart.second,
+                  millisecond: newParentStart.millisecond,
+                })
+                .toISO();
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+      };
+      parentPayload.exdate = mapDatesToNewTime(parent.exdate);
+      parentPayload.rdate = mapDatesToNewTime(parent.rdate);
+
+      await update(parent.id, parentPayload);
+
+      // 更新所有以 parent 为 originalId / parentId 的单次例外事件：保留各自日期，仅替换 time-of-day
+      const children = items.filter((it: any) => it.originalId === parent.id || it.parentId === parent.id);
+      for (const child of children) {
+        try {
+          const childStartOrig = toDT(child.dtstart ?? child.start ?? child.dtstart);
+          if (!childStartOrig || !childStartOrig.isValid) continue;
+          // 计算此 child 的持续时长：若全局时长存在则使用它；否则使用该 child 原始持续时长
+          let childDuration = 0;
+          if (globalDurationMins !== null) {
+            childDuration = globalDurationMins;
+          } else {
+            const childEndOrig = toDT(child.dtend ?? child.end ?? child.dtend);
+            if (childEndOrig && childStartOrig && childEndOrig.isValid && childStartOrig.isValid) {
+              const diff = childEndOrig.diff(childStartOrig, "minutes").minutes;
+              childDuration = Math.max(1, Math.round(diff));
+            } else {
+              // 若既没有 global 时长也无法求出 child 原有时长，则跳过更新 child（避免使用任意默认）
+              continue;
+            }
+          }
+
+          const childNewStart = childStartOrig.set({
+            hour: newParentStart.hour,
+            minute: newParentStart.minute,
+            second: newParentStart.second ?? 0,
+            millisecond: newParentStart.millisecond ?? 0,
+          });
+          const childNewEnd = childNewStart.plus({ minutes: childDuration });
+          await update(child.id, { ...(child as any), dtstart: childNewStart.toISO(), dtend: childNewEnd.toISO() });
+          if (event.id === child.id) {
+            setStartDT(childNewStart);
+            setEndDT(childNewEnd);
+          }
+        } catch (eChild) {
+          console.warn("update child occurrence failed", eChild);
+        }
+      }
+
+      // 如果当前打开的是 parent 本身，更新本地显示
+      if (event.id === parent.id) {
+        setStartDT(newParentStart);
+        if (newParentEnd) setEndDT(newParentEnd);
+      }
+
+      onClose();
+      return;
     } catch (e: any) {
       console.warn("update error", e);
       Alert.alert("更新失败", String(e?.message ?? e));
@@ -263,12 +383,6 @@ export default function EventDetail({ visible, event, onClose }: Props) {
             <Text style={styles.label}>地点</Text>
             <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholder="地点" />
 
-            {startDT && (
-              <Text style={styles.dateLine}>
-                {startDT.setLocale("zh").toFormat("yyyy年LL月dd日 cccc")}
-              </Text>
-            )}
-
             <Text style={styles.label}>开始 / 结束</Text>
             <InlineDateTimePicker
               start={startDT ?? DateTime.local()}
@@ -280,7 +394,6 @@ export default function EventDetail({ visible, event, onClose }: Props) {
               startInvalid={false}
               endInvalid={invalidTime}
             />
-            {recurrenceLabel ? <Text style={styles.recurrenceLine}>{recurrenceLabel}</Text> : null}
             {invalidTime && <Text style={styles.errorText}>结束时间必须晚于开始时间</Text>}
             {showCalendarFor === "start" && (
               <View style={pickerStyles.panelWrap}>
@@ -407,18 +520,6 @@ const styles = StyleSheet.create({
     color: "#D32F2F",       // 红色提示
     fontSize: 12,
     marginTop: 6,
-  },
-
-  dateLine: {
-    marginTop: 8,
-    color: "#666",
-    fontSize: 14,
-  },
-
-  recurrenceLine: {
-    marginTop: 6,
-    color: "#666",
-    fontSize: 13,
   },
 
   webDelBackdrop: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", alignItems: "center", zIndex: 9999 },
