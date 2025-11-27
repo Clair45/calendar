@@ -35,6 +35,9 @@ function buildMinuteOptions(): string[] {
 const TIME_OPTIONS = buildMinuteOptions();
 
 export default function EventFormModal({ visible, onClose, initialDate }: Props) {
+  // helper: 将 DateTime 归一为本地浮动时间（保留用户可见的时刻）
+  const normalizeLocal = (dt: DateTime) =>
+    dt.setZone(DateTime.local().zoneName, { keepLocalTime: true });
   const { create } = useEvents();
   const [recurrenceEndMode, setRecurrenceEndMode] = useState<"never" | "until">("never");
   const [untilDate, setUntilDate] = useState<DateTime>(() => DateTime.local());
@@ -44,8 +47,15 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   const defaultStart = useMemo(() => {
     const now = DateTime.local();
     const baseDate = initialDate ? initialDate.startOf("day") : now.startOf("day");
-    const base = baseDate.plus({ hours: now.hour });
-    return base.startOf("hour");
+    // 使用 set() 而不是 plus()，直接替换时间分量
+    return baseDate.set({
+      hour: now.hour,
+      minute: now.minute,
+      second: 0,
+      millisecond: 0,
+    });
+    // const base = baseDate.plus({ hours: now.hour });
+    // return base.startOf("hour");
   }, [initialDate]);
 
   const [title, setTitle] = useState("");
@@ -68,22 +78,20 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
      if (visible) {
        setTitle("");
        setLocation("");
-       const s = defaultStart;
+       const s = normalizeLocal(defaultStart);
        setStart(s);
-       setEnd(s.plus({ hours: 1 }));
+       setEnd(normalizeLocal(s.plus({ hours: 1 })));
        setRecurrence("none");
-      // 初始化重复结束日期为 start（方便用户修改）
        setRecurrenceEndMode("never");
        setUntilDate(s);
        setShowUntilCalendar(false);
-      // 若没有传入 initialDate，强制先选择开始日期（显示内联日历）
-      if (!initialDate) {
-        setDatePicked(false);
-        setShowCalendarFor("start");
-      } else {
-        setDatePicked(true);
-        setShowCalendarFor(null);
-      }
+       if (!initialDate) {
+         setDatePicked(false);
+         setShowCalendarFor("start");
+       } else {
+         setDatePicked(true);
+         setShowCalendarFor(null);
+       }
      }
    }, [visible, defaultStart]);
  
@@ -119,16 +127,21 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
       rrule = `${rrule};UNTIL=${untilStr}`;
     }
 
+    // 不再用 normalizeLocal；start/end 已在 useState 初始化和 pickDate/incHour 中保持为本地时区
+    // 直接用其 toISO()（包含当前 offset），即为浮动本地时间（如 2025-11-01T17:45:00+08:00）
+    const finalStart = start.toLocal();
+    const finalEnd = end.toLocal();
+ 
      await create({
        title: title.trim(),
-       // 统一以 UTC 存储，前端显示仍使用本地 time
-       dtstart: start.toUTC().toISO(),
-       dtend: end.toUTC().toISO(),
+       // 保存为无 offset 的浮动本地时间（如 2025-11-01T17:45:00），避免 RRULE 生成实例时偏移
+       dtstart: finalStart.toISO(),
+       dtend: finalEnd.toISO(),
        location: location.trim(),
        rrule,
        exdate: [],
        rdate: [],
-       timezone: start.zoneName,
+       timezone: finalStart.zoneName,
        notes: notes.trim(),
      } as any);
  
@@ -138,9 +151,17 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   // 指定为 start / end 的日期选择（不改变时间部分）
   function pickDate(date: DateTime, which: "start" | "end") {
     if (which === "start") {
-      setStart((s) => s.set({ year: date.year, month: date.month, day: date.day }));
+      // 保留当前的 offset，只改日期部分
+      const ns = start.set({ year: date.year, month: date.month, day: date.day });
+      setStart(ns);
+      if (ns.toMillis() >= end.toMillis()) {
+        const candidate = ns.plus({ minutes: 5 });
+        const endOfDay = ns.set({ hour: 23, minute: 59, second: 0, millisecond: 0 });
+        setEnd(candidate.day !== ns.day ? endOfDay : candidate);
+      }
     } else {
-      setEnd((e) => e.set({ year: date.year, month: date.month, day: date.day }));
+      const ne = end.set({ year: date.year, month: date.month, day: date.day });
+      setEnd(ne);
     }
     setDatePicked(true);
     setShowCalendarFor(null);
@@ -192,14 +213,12 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   }
   
   function incHour(delta: number, which: "start" | "end") {
-    // 使用直接设置小时的方法，避免使用 plus 导致日期变化
     if (which === "start") {
       let newHour = start.hour + delta;
       if (newHour < 0) newHour = 0;
       if (newHour > 23) newHour = 23;
       const ns = start.set({ hour: newHour });
       setStart(ns);
-      // 若 start >= end，调整 end 为 start + 5 分钟，且不跨天
       if (ns.toMillis() >= end.toMillis()) {
         const candidate = ns.plus({ minutes: 5 });
         const endOfDay = ns.set({ hour: 23, minute: 59, second: 0, millisecond: 0 });

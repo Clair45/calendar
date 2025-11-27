@@ -40,17 +40,18 @@ export function expandRecurrences(
 
   const instances: EventInstance[] = [];
 
-  // 遍历所有输入事件
   for (const ev of events) {
-    const zone = ev.timezone || "local"; //时区默认为本地时区
-    const dtstart = DateTime.fromISO(ev.dtstart, { zone });
-    const dtend = ev.dtend? DateTime.fromISO(ev.dtend, { zone })
-                          : dtstart.plus({ hours: 1 });
+    // 不指定 zone，让 Luxon 按字符串中的 offset/Z 自动解析
+    // （dtstart 已是带 offset 的 ISO，如 2025-11-01T17:45:00+08:00）
+    const dtstart = DateTime.fromISO(ev.dtstart, { setZone: true });
+    const dtend = ev.dtend ? DateTime.fromISO(ev.dtend, { setZone: true })
+                           : dtstart.plus({ hours: 1 });
     const duration = dtend.diff(dtstart);
 
     // Helper function 推送单个事件实例到结果数组(instances)
     const pushInstance = (occDate: Date) => {
-      const occStart = DateTime.fromJSDate(occDate, { zone });
+      // 同样用 setZone: true，按 occDate 本身的时区解析
+      const occStart = DateTime.fromJSDate(occDate, { zone: dtstart.zone });
       const occEnd = occStart.plus(duration);
       // overlap check with range
       if (occEnd <= rangeStart || occStart >= rangeEnd) return;
@@ -76,7 +77,7 @@ export function expandRecurrences(
           }
         }
       } catch {
-        // 如果解析失败，跳过该事件的重复展开
+        // fallback
       }
     } else {
       // 单次事件：直接检查范围
@@ -90,7 +91,7 @@ export function expandRecurrences(
     if (ev.rdate && ev.rdate.length) {
       for (const r of ev.rdate) {
         try {
-          const d = DateTime.fromISO(r, { zone }).toJSDate();
+          const d = DateTime.fromISO(r, { setZone: true }).toJSDate();
           pushInstance(d);
         } catch {}
       }
@@ -98,7 +99,7 @@ export function expandRecurrences(
  
     // 处理排除日期 (EXDATE)
     if (ev.exdate && ev.exdate.length) {
-      const exSet = new Set(ev.exdate.map((s) => DateTime.fromISO(s, { zone }).toISO()));
+      const exSet = new Set(ev.exdate.map((s) => DateTime.fromISO(s, { setZone: true }).toISO()));
       // 反向遍历 移除属于当前事件且开始时间匹配排除日期的事件实例
       for (let i = instances.length - 1; i >= 0; i--) {
         // instances[i].originalId 对应父 id（单次事件 originalId === id）

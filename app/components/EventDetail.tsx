@@ -72,9 +72,11 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       location: location.trim(),
       notes,
     };
-    // 写入后端/存储时使用 UTC ISO，前端显示保持本地
-    if (startDT) updatedFields.dtstart = startDT.toUTC().toISO();
-    if (endDT) updatedFields.dtend = endDT.toUTC().toISO();
+    // 先强制为本地时区（保留用户在 UI 中输入的时刻），再转 UTC 存储，避免 web 时区偏差
+    const normalizeLocal = (dt: DateTime) =>
+      dt.setZone(DateTime.local().zoneName, { keepLocalTime: true });
+    if (startDT) updatedFields.dtstart = normalizeLocal(startDT).toISO();
+    if (endDT) updatedFields.dtend = normalizeLocal(endDT).toISO();
 
     // helper: normalize to DateTime
     const toDT = (v: any) => ((DateTime as any).isDateTime?.(v) ? v : v ? DateTime.fromISO(String(v)) : null);
@@ -198,7 +200,11 @@ export default function EventDetail({ visible, event, onClose }: Props) {
             millisecond: newParentStart.millisecond ?? 0,
           });
           const childNewEnd = childNewStart.plus({ minutes: childDuration });
-          await update(child.id, { ...(child as any), dtstart: childNewStart.toISO(), dtend: childNewEnd.toISO() });
+          await update(child.id, {
+            ...(child as any),
+            dtstart: childNewStart.toISO(),
+            dtend: childNewEnd.toISO(),
+          });
           if (event.id === child.id) {
             setStartDT(childNewStart);
             setEndDT(childNewEnd);
@@ -210,8 +216,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
 
       // 如果当前打开的是 parent 本身，更新本地显示
       if (event.id === parent.id) {
-        setStartDT(newParentStart);
-        if (newParentEnd) setEndDT(newParentEnd);
+        setStartDT(newParentStart.toLocal());
+        if (newParentEnd) setEndDT(newParentEnd.toLocal());
       }
 
       onClose();
