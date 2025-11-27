@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Modal,
@@ -50,6 +50,22 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       typeof ev?.id === "string" && ev.id.includes("::") ? ev.id.split("::")[0] : null;
     return instOriginalId ?? parsedParentFromId ?? ev?.id;
   };
+
+  // 计算可显示的重复说明（中文）
+  const recurrenceLabel = useMemo(() => {
+    if (!event) return "";
+    const parentId = resolveParentId(event);
+    const parent = items.find((it: any) => it.id === parentId) ?? event;
+    const raw = String(parent?.rrule ?? "").toUpperCase();
+    if (!raw) return "";
+    const m = raw.match(/FREQ=([^;]+)/i);
+    if (!m) return "重复";
+    const freq = (m[1] ?? "").toUpperCase();
+    if (freq === "DAILY") return "重复：每天";
+    if (freq === "WEEKLY") return "重复：每周";
+    if (freq === "MONTHLY") return "重复：每月";
+    return `重复：${freq.toLowerCase()}`;
+  }, [event, items]);
 
   async function handleSave() {
     if (invalidTime) {
@@ -247,6 +263,12 @@ export default function EventDetail({ visible, event, onClose }: Props) {
             <Text style={styles.label}>地点</Text>
             <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholder="地点" />
 
+            {startDT && (
+              <Text style={styles.dateLine}>
+                {startDT.setLocale("zh").toFormat("yyyy年LL月dd日 cccc")}
+              </Text>
+            )}
+
             <Text style={styles.label}>开始 / 结束</Text>
             <InlineDateTimePicker
               start={startDT ?? DateTime.local()}
@@ -258,6 +280,7 @@ export default function EventDetail({ visible, event, onClose }: Props) {
               startInvalid={false}
               endInvalid={invalidTime}
             />
+            {recurrenceLabel ? <Text style={styles.recurrenceLine}>{recurrenceLabel}</Text> : null}
             {invalidTime && <Text style={styles.errorText}>结束时间必须晚于开始时间</Text>}
             {showCalendarFor === "start" && (
               <View style={pickerStyles.panelWrap}>
@@ -384,6 +407,18 @@ const styles = StyleSheet.create({
     color: "#D32F2F",       // 红色提示
     fontSize: 12,
     marginTop: 6,
+  },
+
+  dateLine: {
+    marginTop: 8,
+    color: "#666",
+    fontSize: 14,
+  },
+
+  recurrenceLine: {
+    marginTop: 6,
+    color: "#666",
+    fontSize: 13,
   },
 
   webDelBackdrop: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", alignItems: "center", zIndex: 9999 },
