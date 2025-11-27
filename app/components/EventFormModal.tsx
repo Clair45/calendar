@@ -1,15 +1,16 @@
 import { DateTime } from "luxon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-    Alert,
-    Dimensions,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Dimensions,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
 
@@ -36,6 +37,9 @@ const TIME_OPTIONS = buildTimeOptions();
 
 export default function EventFormModal({ visible, onClose, initialDate }: Props) {
   const { create } = useEvents();
+  const [recurrenceEndMode, setRecurrenceEndMode] = useState<"never" | "until">("never");
+  const [untilDate, setUntilDate] = useState<DateTime>(() => DateTime.local());
+  const [showUntilCalendar, setShowUntilCalendar] = useState<boolean>(false);
 
   // 计算默认开始时间：把 DateTime.local() 放到 useMemo 内，确保依赖只和 initialDate 变化相关
   const defaultStart = useMemo(() => {
@@ -68,6 +72,10 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
        setStart(s);
        setEnd(s.plus({ hours: 1 }));
        setRecurrence("none");
+      // 初始化重复结束日期为 start（方便用户修改）
+       setRecurrenceEndMode("never");
+       setUntilDate(s);
+       setShowUntilCalendar(false);
       // 若没有传入 initialDate，强制先选择开始日期（显示内联日历）
       if (!initialDate) {
         setDatePicked(false);
@@ -96,14 +104,20 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
        return;
      }
 
-     const rrule =
-       recurrence === "none"
-         ? undefined
-         : recurrence === "daily"
-         ? "FREQ=DAILY"
-         : recurrence === "weekly"
-         ? "FREQ=WEEKLY"
-         : "FREQ=MONTHLY";
+    // 构建 rrule，并在选择了 "于日期" 时添加 UNTIL
+    let rrule =
+      recurrence === "none"
+        ? undefined
+        : recurrence === "daily"
+        ? "FREQ=DAILY"
+        : recurrence === "weekly"
+        ? "FREQ=WEEKLY"
+        : "FREQ=MONTHLY";
+    if (rrule && recurrenceEndMode === "until" && untilDate) {
+      // RRULE 的 UNTIL 使用 UTC 格式 YYYYMMDDTHHMMSSZ
+      const untilStr = untilDate.toUTC().toFormat("yyyyLLdd'T'HHmmss'Z'");
+      rrule = `${rrule};UNTIL=${untilStr}`;
+    }
 
      await create({
        title: title.trim(),
@@ -303,7 +317,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
         </View>
 
         <ScrollView
-          ref={(r) => (timeScrollRef.current = r)}
+          ref={timeScrollRef}
           showsVerticalScrollIndicator={false}
           snapToInterval={TIME_ITEM_HEIGHT}
           decelerationRate="fast"
@@ -458,6 +472,79 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                    </TouchableOpacity>
                  ))}
                </View>
+               {/* 重复结束选项：仅当选择了重复时显示 */}
+               {recurrence !== "none" && (
+                 <>
+                   <Text style={styles.label}>重复结束</Text>
+                   <View style={styles.row}>
+                     <TouchableOpacity
+                       onPress={() => setRecurrenceEndMode("never")}
+                       style={[styles.recurrenceBtn, recurrenceEndMode === "never" && styles.recurrenceSelected]}
+                     >
+                       <Text style={recurrenceEndMode === "never" ? styles.recurrenceTextSel : styles.recurrenceText}>
+                         永不
+                       </Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity
+                       onPress={() => {
+                         setRecurrenceEndMode("until");
+                         // 在 web 直接展开日期输入，在移动端打开内联日历
+                         if (Platform.OS === "web") {
+                           setShowUntilCalendar(false);
+                         } else {
+                           setShowUntilCalendar(true);
+                         }
+                       }}
+                       style={[styles.recurrenceBtn, recurrenceEndMode === "until" && styles.recurrenceSelected]}
+                     >
+                       <Text style={recurrenceEndMode === "until" ? styles.recurrenceTextSel : styles.recurrenceText}>
+                         于日期
+                       </Text>
+                     </TouchableOpacity>
+                   </View>
+
+                  {recurrenceEndMode === "until" && (
+                    <View style={{ marginTop: 8 }}>
+                      {/* 显示当前选择的结束重复日期 */}
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <TouchableOpacity onPress={() => setShowUntilCalendar((s) => !s)} style={styles.dateBtnFull}>
+                          <Text>{untilDate.toFormat("yyyy-LL-dd")}</Text>
+                        </TouchableOpacity>
+                        {/* web 端也允许通过原生 input 快速切换 */}
+                        {Platform.OS === "web" && (
+                          <input
+                            type="date"
+                            // toISODate() 可能返回 null -> 用空字符串回退以满足 input value 类型
+                            value={untilDate.toISODate() ?? ""}
+                            style={{ marginLeft: 8 }}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                              const v = e.target.value;
+                              if (!v) return;
+                              const d = DateTime.fromISO(v);
+                              if (d.isValid) setUntilDate(d);
+                            }}
+                          />
+                        )}
+                      </View>
+
+                      {/* 内联日历用于手机端或展开时 */}
+                      {showUntilCalendar && (
+                        <View style={{ width: "100%", paddingTop: 8 }}>
+                          <CalendarPicker
+                            visible={true}
+                            value={untilDate}
+                            onPick={(d): void => {
+                              setUntilDate(d);
+                              setShowUntilCalendar(false);
+                            }}
+                            onClose={(): void => setShowUntilCalendar(false)}
+                          />
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </>
+              )}
              </View>
            </View>
          </View>
