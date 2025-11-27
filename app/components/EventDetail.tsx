@@ -39,8 +39,11 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       setTitle(event.title ?? "");
       setLocation((event as any).location ?? "");
       setNotes((event as any).notes ?? "");
-      setStartDT((DateTime as any).isDateTime?.(event.start) ? event.start : DateTime.fromISO(String(event.start ?? event.dtstart)));
-      setEndDT((DateTime as any).isDateTime?.(event.end) ? event.end : DateTime.fromISO(String(event.end ?? event.dtend ?? event.start ?? event.dtstart)));
+      // 按字符串中的 zone/ Z 解析，最后转换为本地显示
+      const parseToLocal = (v: any) =>
+        (DateTime as any).isDateTime?.(v) ? (v as DateTime).toLocal() : v ? DateTime.fromISO(String(v), { setZone: true }).toLocal() : null;
+      setStartDT(parseToLocal(event.start ?? event.dtstart));
+      setEndDT(parseToLocal(event.end ?? event.dtend ?? event.start ?? event.dtstart));
     } else {
       setTitle("");
       setLocation("");
@@ -69,8 +72,9 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       location: location.trim(),
       notes,
     };
-    if (startDT) updatedFields.dtstart = startDT.toISO();
-    if (endDT) updatedFields.dtend = endDT.toISO();
+    // 写入后端/存储时使用 UTC ISO，前端显示保持本地
+    if (startDT) updatedFields.dtstart = startDT.toUTC().toISO();
+    if (endDT) updatedFields.dtend = endDT.toUTC().toISO();
 
     // helper: normalize to DateTime
     const toDT = (v: any) => ((DateTime as any).isDateTime?.(v) ? v : v ? DateTime.fromISO(String(v)) : null);

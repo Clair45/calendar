@@ -121,9 +121,10 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
 
      await create({
        title: title.trim(),
-       dtstart: start.toISO(),
-       dtend: end.toISO(),
-       location: location.trim(), // <-- 新增 location 字段
+       // 统一以 UTC 存储，前端显示仍使用本地 time
+       dtstart: start.toUTC().toISO(),
+       dtend: end.toUTC().toISO(),
+       location: location.trim(),
        rrule,
        exdate: [],
        rdate: [],

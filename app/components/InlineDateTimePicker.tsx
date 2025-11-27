@@ -51,7 +51,8 @@ export default function InlineDateTimePicker({ start, end, onChange, startInvali
   const handleWebChange = (value: string, which: "start" | "end") => {
     if (!value) return;
     // web 的 input[type=datetime-local] 返回形如 "2025-11-26T14:30"
-    const dt = DateTime.fromISO(value);
+    // 把 input 的值按本地解析（datetime-local 没有 zone 信息）
+    const dt = DateTime.fromISO(value, { setZone: false }).toLocal();
     if (!dt.isValid) return;
     if (which === "start") onChange({ start: dt, end: safeEnd });
     else onChange({ start: safeStart, end: dt });
@@ -73,7 +74,9 @@ export default function InlineDateTimePicker({ start, end, onChange, startInvali
               border: "1px solid #eee",
               background: "white",
             }}
-            value={safeStart.toISO({ suppressMilliseconds: true, includeOffset: false }).slice(0, 16)}
+           
+            // 用 toFormat 直接生成 "YYYY-MM-DDTHH:mm"，避免 toISO 返回 null
+            value={safeStart.isValid ? safeStart.toLocal().toFormat("yyyy-LL-dd'T'HH:mm") : ""}
             onChange={(e: any) => handleWebChange(e.target.value, "start")}
           />
         ) : (
@@ -98,7 +101,8 @@ export default function InlineDateTimePicker({ start, end, onChange, startInvali
               border: "1px solid #eee",
               background: "white",
             }}
-            value={safeEnd.toISO({ suppressMilliseconds: true, includeOffset: false }).slice(0, 16)}
+            // 使用 toFormat 直接生成 "YYYY-MM-DDTHH:mm"，避免 toISO 返回 null
+            value={safeEnd.isValid ? safeEnd.toFormat("yyyy-LL-dd'T'HH:mm") : ""}
             onChange={(e: any) => handleWebChange(e.target.value, "end")}
           />
         ) : (
