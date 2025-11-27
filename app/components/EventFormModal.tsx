@@ -24,16 +24,15 @@ const { height: SCREEN_H } = Dimensions.get("window");
 const TIME_ITEM_HEIGHT = 40;
 const VISIBLE_TIME_ITEMS = 7;
 
-function buildTimeOptions(): string[] {
+// 只生成当前小时内每 5 分钟的选项（滚轮只显示分钟）
+function buildMinuteOptions(): string[] {
   const list: string[] = [];
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 5) {
-      list.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
-    }
+  for (let m = 0; m < 60; m += 5) {
+    list.push(String(m).padStart(2, "0")); // "00","05",...,"55"
   }
   return list;
 }
-const TIME_OPTIONS = buildTimeOptions();
+const TIME_OPTIONS = buildMinuteOptions();
 
 export default function EventFormModal({ visible, onClose, initialDate }: Props) {
   const { create } = useEvents();
@@ -51,6 +50,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
 
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
+  const [notes, setNotes] = useState("");
   const [start, setStart] = useState<DateTime>(defaultStart);
   const [end, setEnd] = useState<DateTime>(defaultStart.plus({ hours: 1 }));
   const [recurrence, setRecurrence] = useState<"none" | "daily" | "weekly" | "monthly">("none");
@@ -128,7 +128,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
        exdate: [],
        rdate: [],
        timezone: start.zoneName,
-       notes: "",
+       notes: notes.trim(),
      } as any);
  
      onClose();
@@ -154,8 +154,9 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
     setShowTimePicker(which);
     setTimeout(() => {
       const t = which === "start" ? start : end;
-      const hhmm = `${String(t.hour).padStart(2, "0")}:${String(Math.floor(t.minute / 5) * 5).padStart(2, "0")}`;
-      const idx = TIME_OPTIONS.indexOf(hhmm);
+      // 只滚动到分钟条目（保留小时由左右按钮控制）
+      const mm = String(Math.floor(t.minute / 5) * 5).padStart(2, "0");
+      const idx = TIME_OPTIONS.indexOf(mm);
       if (idx >= 0 && timeScrollRef.current) {
         timeScrollRef.current.scrollTo({
           y: Math.max(0, idx - Math.floor(VISIBLE_TIME_ITEMS / 2)) * TIME_ITEM_HEIGHT,
@@ -170,10 +171,10 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
     const mid = Math.floor(VISIBLE_TIME_ITEMS / 2);
     const idx = Math.round(y / TIME_ITEM_HEIGHT) + mid;
     const clamped = Math.max(0, Math.min(TIME_OPTIONS.length - 1, idx));
-    const [hh, mm] = TIME_OPTIONS[clamped].split(":").map((s) => parseInt(s, 10));
-    // 只修改当天的时分，不允许改变日期
+    // TIME_OPTIONS 仅包含分钟（"00","05"...），保留原有小时，只替换分钟
+    const mm = parseInt(TIME_OPTIONS[clamped], 10);
     const baseDate = which === "start" ? start : end;
-    const updated = baseDate.set({ hour: hh, minute: mm, second: 0, millisecond: 0 });
+    const updated = baseDate.set({ minute: mm, second: 0, millisecond: 0 });
     if (which === "start") {
       setStart(updated);
       // 若 start >= end，自动把 end 设置为 start + 5 分钟，但也保证不跨天（cap 到当天 23:59）
@@ -261,8 +262,8 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   function TimePicker({ visible, which, onClose }: { visible: boolean; which: "start" | "end"; onClose: () => void }) {
      const [selectedIdx, setSelectedIdx] = useState<number>(() => {
        const t = which === "start" ? start : end;
-       const hhmm = `${String(t.hour).padStart(2, "0")}:${String(Math.floor(t.minute / 5) * 5).padStart(2, "0")}`;
-       const idx = TIME_OPTIONS.indexOf(hhmm);
+       const mm = String(Math.floor(t.minute / 5) * 5).padStart(2, "0");
+       const idx = TIME_OPTIONS.indexOf(mm);
        return idx >= 0 ? idx : 0;
      });
  
@@ -289,9 +290,10 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
      }
  
      function confirmSelect() {
-       const [hh, mm] = TIME_OPTIONS[selectedIdx].split(":").map((s) => parseInt(s, 10));
+       // TIME_OPTIONS 仅为分钟值；保留小时，只替换分钟
+       const mm = parseInt(TIME_OPTIONS[selectedIdx], 10);
        const baseDate = which === "start" ? start : end;
-       const updated = baseDate.set({ hour: hh, minute: mm, second: 0, millisecond: 0 });
+       const updated = baseDate.set({ minute: mm, second: 0, millisecond: 0 });
        if (which === "start") {
          setStart(updated);
          if (updated.toMillis() >= end.toMillis()) {
@@ -325,9 +327,9 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
           onScrollEndDrag={handleScrollEnd}
           contentContainerStyle={{ paddingVertical: (VISIBLE_TIME_ITEMS / 2) * TIME_ITEM_HEIGHT }}
         >
-          {TIME_OPTIONS.map((t, i) => (
+          {TIME_OPTIONS.map((mm, i) => (
             <TouchableOpacity
-              key={t}
+              key={mm}
               activeOpacity={0.7}
               onPress={() => {
                 setSelectedIdx(i);
@@ -340,7 +342,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
               }}
             >
               <View style={[styles.timeItem, { height: TIME_ITEM_HEIGHT }, i === selectedIdx && styles.timeItemSel]}>
-                <Text style={[styles.timeItemText, i === selectedIdx && styles.timeItemTextSel]}>{t}</Text>
+                <Text style={[styles.timeItemText, i === selectedIdx && styles.timeItemTextSel]}>{mm} 分</Text>
               </View>
             </TouchableOpacity>
           ))}
@@ -455,6 +457,14 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                   </View>
                 )}
                </View>
+               <Text style={styles.label}>备注（可选）</Text>
+              <TextInput
+                style={[styles.input, { minHeight: 80 }]}
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="备注"
+                multiline
+              />
  
                {invalidTime && <Text style={styles.errorText}>结束时间必须晚于开始时间</Text>}
 
@@ -529,7 +539,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
 
                       {/* 内联日历用于手机端或展开时 */}
                       {showUntilCalendar && (
-                        <View style={{ width: "100%", paddingTop: 8, marginTop: -200 }}>
+                        <View style={{ width: "100%", paddingTop: 8, marginTop: -300 }}>
                           <CalendarPicker
                             visible={true}
                             value={untilDate}

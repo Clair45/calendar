@@ -517,7 +517,7 @@ const styles = StyleSheet.create({
   saveText: { color: "#fff", fontWeight: "600" },
 
   errorText: {
-    color: "#D32F2F",       // 红色提示
+    color: "#D32F2F",       
     fontSize: 12,
     marginTop: 6,
   },
