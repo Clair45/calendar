@@ -529,7 +529,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
 
                       {/* 内联日历用于手机端或展开时 */}
                       {showUntilCalendar && (
-                        <View style={{ width: "100%", paddingTop: 8 }}>
+                        <View style={{ width: "100%", paddingTop: 8, marginTop: -200 }}>
                           <CalendarPicker
                             visible={true}
                             value={untilDate}
