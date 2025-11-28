@@ -13,6 +13,8 @@ import {
   View,
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
+// 补充导入 REMINDER_OPTIONS
+import { REMINDER_OPTIONS, scheduleEventNotification } from "../utils/notifications";
 
 type Props = {
   visible: boolean;
@@ -54,6 +56,10 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
+  // 新增 state: 默认 -1 (无)
+  const [alertOffset, setAlertOffset] = useState<number>(-1); 
+  const [showAlertPicker, setShowAlertPicker] = useState(false);
+
   const [start, setStart] = useState<DateTime>(defaultStart);
   const [end, setEnd] = useState<DateTime>(defaultStart.plus({ hours: 1 }));
   const [recurrence, setRecurrence] = useState<"none" | "daily" | "weekly" | "monthly">("none");
@@ -125,20 +131,31 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
     const finalStart = start.toLocal();
     const finalEnd = end.toLocal();
  
-     await create({
-       title: title.trim(),
-       // 保存为无 offset 的浮动本地时间（如 2025-11-01T17:45:00），避免 RRULE 生成实例时偏移
-       dtstart: finalStart.toISO(),
-       dtend: finalEnd.toISO(),
-       location: location.trim(),
-       rrule,
-       exdate: [],
-       rdate: [],
-       timezone: finalStart.zoneName,
-       notes: notes.trim(),
-     } as any);
- 
-     onClose();
+     // 1. 创建事件 (假设 create 返回新 ID，或者我们需要生成 ID)
+    // 注意：如果 useEvents 的 create 没有返回 ID，你需要先生成 ID
+    const newEventId = Date.now().toString(); // 简单示例 ID
+
+    await create({
+      id: newEventId, // 显式传 ID
+      title: title.trim(),
+      // 保存为无 offset 的浮动本地时间（如 2025-11-01T17:45:00），避免 RRULE 生成实例时偏移
+      dtstart: finalStart.toISO(),
+      dtend: finalEnd.toISO(),
+      location: location.trim(),
+      rrule,
+      exdate: [],
+      rdate: [],
+      timezone: finalStart.zoneName,
+      notes: notes.trim(),
+      alertOffset, // 保存设置到数据库
+    } as any);
+
+    // 2. 调度通知
+    if (alertOffset >= 0) {
+      await scheduleEventNotification(newEventId, title.trim(), finalStart, alertOffset);
+    }
+
+    onClose();
    }
 
   // 指定为 start / end 的日期选择（不改变时间部分）
@@ -472,12 +489,45 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                </View>
                <Text style={styles.label}>备注（可选）</Text>
               <TextInput
-                style={[styles.input, { minHeight: 80 }]}
+                style={[styles.input, { minHeight: 50 }]}
                 value={notes}
                 onChangeText={setNotes}
                 placeholder="备注"
                 multiline
               />
+
+              {/* 新增：提醒选择 UI */}
+              <Text style={styles.label}>提醒</Text>
+              <TouchableOpacity
+                style={styles.inputBtn}
+                onPress={() => setShowAlertPicker(!showAlertPicker)}
+              >
+                <Text style={styles.inputText}>
+                  {REMINDER_OPTIONS.find((o) => o.value === alertOffset)?.label ?? "无"}
+                </Text>
+              </TouchableOpacity>
+
+              {showAlertPicker && (
+                <ScrollView
+                  style={{ backgroundColor: '#f9f9f9', borderRadius: 8, marginBottom: 10, maxHeight: 200 }}
+                  nestedScrollEnabled={true}
+                >
+                  {REMINDER_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                      onPress={() => {
+                        setAlertOffset(opt.value);
+                        setShowAlertPicker(false);
+                      }}
+                    >
+                      <Text style={{ color: opt.value === alertOffset ? '#007bff' : '#333' }}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
  
                {invalidTime && <Text style={styles.errorText}>结束时间必须晚于开始时间</Text>}
 
@@ -552,7 +602,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
 
                       {/* 内联日历用于手机端或展开时 */}
                       {showUntilCalendar && (
-                        <View style={{ width: "100%", paddingTop: 8, marginTop: -300 }}>
+                        <View style={{ width: "100%", paddingTop: 8, marginTop: -340 }}>
                           <CalendarPicker
                             visible={true}
                             value={untilDate}
@@ -652,4 +702,17 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
    timeItemTextSel: { color: "#007bff", fontWeight: "700" },
  
    invalidText: { textDecorationLine: "line-through", color: "#c00" },
+   inputBtn: {
+    padding: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#eee",
+    marginTop: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inputText: {
+    color: "#333",
+    fontSize: 15,
+  },
  });

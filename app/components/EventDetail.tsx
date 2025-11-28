@@ -12,7 +12,8 @@ import {
   View,
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
-import InlineDateTimePicker, { CalendarPicker, TimePicker, pickerStyles } from "./InlineDateTimePicker";
+import { REMINDER_OPTIONS } from "../utils/notifications";
+import InlineDateTimePicker, { CalendarPicker, pickerStyles, TimePicker } from "./InlineDateTimePicker";
 
 type Props = {
   visible: boolean;
@@ -26,6 +27,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
+  const [alertOffset, setAlertOffset] = useState<number>(-1);
+  const [showAlertPicker, setShowAlertPicker] = useState(false);
   const [showDelOptions, setShowDelOptions] = useState(false);
   const [startDT, setStartDT] = useState<DateTime | null>(null);
   const [endDT, setEndDT] = useState<DateTime | null>(null);
@@ -44,6 +47,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         (DateTime as any).isDateTime?.(v) ? (v as DateTime).toLocal() : v ? DateTime.fromISO(String(v), { setZone: true }).toLocal() : null;
       setStartDT(parseToLocal(event.start ?? event.dtstart));
       setEndDT(parseToLocal(event.end ?? event.dtend ?? event.start ?? event.dtstart));
+      // 初始化读取
+      setAlertOffset((event as any).alertOffset ?? -1);
     } else {
       setTitle("");
       setLocation("");
@@ -67,10 +72,12 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       return;
     }
     if (!event) return;
+    // 1. 准备更新数据
     const updatedFields: any = {
       title: title.trim(),
       location: location.trim(),
       notes,
+      alertOffset,
     };
     // 先强制为本地时区（保留用户在 UI 中输入的时刻），再转 UTC 存储，避免 web 时区偏差
     const normalizeLocal = (dt: DateTime) =>
@@ -484,6 +491,35 @@ export default function EventDetail({ visible, event, onClose }: Props) {
               placeholder="备注"
               multiline
             />
+
+            <Text style={styles.label}>提醒</Text>
+            <TouchableOpacity
+              style={styles.inputBtn}
+              onPress={() => setShowAlertPicker(!showAlertPicker)}
+            >
+              <Text style={styles.inputText}>
+                {REMINDER_OPTIONS.find((o) => o.value === alertOffset)?.label ?? "无"}
+              </Text>
+            </TouchableOpacity>
+
+            {showAlertPicker && (
+              <View style={{ backgroundColor: '#f9f9f9', borderRadius: 8, marginBottom: 10 }}>
+                {REMINDER_OPTIONS.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                    onPress={() => {
+                      setAlertOffset(opt.value);
+                      setShowAlertPicker(false);
+                    }}
+                  >
+                    <Text style={{ color: opt.value === alertOffset ? '#007bff' : '#333' }}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </ScrollView>
 
           <View style={styles.footer}>
@@ -537,6 +573,17 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 8 },
   label: { marginTop: 12, color: "#444", fontSize: 13 },
   input: { borderBottomWidth: 1, borderBottomColor: "#eee", paddingVertical: 8, fontSize: 15 },
+  inputBtn: {
+    borderWidth: 1,
+    borderColor: "#007bff",
+    borderRadius: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+  },
+  inputText: { color: "#007bff", fontSize: 15 },
 
   row: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
 
