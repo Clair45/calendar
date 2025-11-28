@@ -7,30 +7,33 @@ export async function scheduleEventNotification(
   startTime: DateTime,
   minutesBefore: number
 ) {
-  // 1. 先取消该事件旧的通知（如果有）
+  // 1. 先取消旧通知
   await cancelEventNotification(eventId);
 
-  if (minutesBefore < 0) return; // "无" = -1
+  if (minutesBefore < 0) return;
 
   // 2. 计算触发时间
+  // 如果 minutesBefore = 0，则在 startTime 触发
   const triggerDate = startTime.minus({ minutes: minutesBefore }).toJSDate();
   
-  // 如果时间已过，不调度
-  if (triggerDate.getTime() <= Date.now()) return;
+  // 如果触发时间已过（容差 5秒），则不调度
+  if (triggerDate.getTime() <= Date.now() - 5000) return;
 
-  // 3. 调度新通知
+  // 3. 调度
+  // 注意：triggerDate 如果是过去的时间，scheduleNotificationAsync 会立即触发或失败
+  // 我们希望它在指定时间触发。
   await Notifications.scheduleNotificationAsync({
     content: {
       title: "日程提醒",
-      body: `${title} 将在 ${minutesBefore === 0 ? '现在' : minutesBefore + '分钟后'} 开始`,
+      body: `${title} ${minutesBefore === 0 ? '现在开始' : `将在 ${minutesBefore} 分钟后开始`}`,
       data: { eventId },
+      sound: true, // 确保有声音
     },
-    // 修改此处：将 Date 包装在对象中，并指定类型
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
-      date: triggerDate,
+      date: triggerDate, // 必须是未来的时间
     },
-    identifier: `event-${eventId}`, // 使用固定 ID 方便覆盖/取消
+    identifier: `event-${eventId}`,
   });
 }
 
@@ -38,7 +41,6 @@ export async function cancelEventNotification(eventId: string) {
   await Notifications.cancelScheduledNotificationAsync(`event-${eventId}`);
 }
 
-// 辅助：选项列表
 export const REMINDER_OPTIONS = [
   { label: "无", value: -1 },
   { label: "日程开始时", value: 0 },

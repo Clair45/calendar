@@ -1,6 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Slot } from 'expo-router'; // 引入 Slot
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect } from 'react';
 import { Text, View } from 'react-native';
 
 // 1. 定义 Context 类型（根据实际需要调整）
@@ -44,6 +44,22 @@ export default function RootLayout() {
   const contextValue: RootLayoutContextType = {
     theme: 'light', // 示例值
   };
+
+  // 新增：请求通知权限
+  useEffect(() => {
+    (async () => {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        console.log('Failed to get push token for push notification!');
+        return;
+      }
+    })();
+  }, []);
 
   return (
     <RootLayoutContext.Provider value={contextValue}>

@@ -12,7 +12,8 @@ import {
   View,
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
-import { REMINDER_OPTIONS } from "../utils/notifications";
+// 补充导入调度函数
+import { cancelEventNotification, REMINDER_OPTIONS, scheduleEventNotification } from "../utils/notifications";
 import InlineDateTimePicker, { CalendarPicker, pickerStyles, TimePicker } from "./InlineDateTimePicker";
 
 type Props = {
@@ -98,6 +99,31 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         const base = parent && parentId !== event.id ? parent : event;
         const payload = { ...(base as any), ...updatedFields };
         await update(targetId, payload);
+        // --- 新增：更新系统通知 ---
+        // 无论更新的是 parent 还是 child，我们都尝试为当前正在查看的这个事件 ID 设定通知
+        // 注意：如果是重复事件的 parent，这里只为 parent 本身设定了通知。
+        // 若需要为所有子事件设定通知，逻辑会较复杂。此处仅保证“当前查看的事件”有提醒。
+        
+        // 获取最终的开始时间 (优先使用 startDT，否则用 event 原有时间)
+        const finalStartDT = startDT ?? toDT(event.start ?? event.dtstart);
+        
+        // 只有当时间有效且 ID 存在时才调度
+        if (finalStartDT && finalStartDT.isValid && event.id) {
+          if (alertOffset >= 0) {
+            // 调度新提醒
+            await scheduleEventNotification(
+              event.id, 
+              title.trim(), 
+              finalStartDT.toLocal(), 
+              alertOffset
+            );
+          } else {
+            // 如果选择了“无”，则取消旧提醒
+            await cancelEventNotification(event.id);
+          }
+        }
+        // ---------------------------
+
         onClose();
         return;
       }
@@ -259,6 +285,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         // fallback: delete this id (for non-recurring)
         if (typeof remove === "function") await remove(event.id);
       }
+      // 新增：取消通知
+      await cancelEventNotification(event.id);
     } catch (e) {
       console.warn("remove single occurrence error", e);
       Alert.alert("删除失败", String(e));
@@ -351,6 +379,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
           onPress: async () => {
             try {
               if (typeof remove === "function") await remove(event.id);
+              // 新增：取消通知
+              await cancelEventNotification(event.id);
             } catch (e) {
               console.warn("remove error", e);
             }
