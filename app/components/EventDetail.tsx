@@ -39,25 +39,52 @@ export default function EventDetail({ visible, event, onClose }: Props) {
   const invalidTime = Boolean(startDT && endDT && endDT.toMillis() <= startDT.toMillis());
 
   useEffect(() => {
-    if (event) {
-      setTitle(event.title ?? "");
-      setLocation((event as any).location ?? "");
-      setNotes((event as any).notes ?? "");
-      // 按字符串中的 zone/ Z 解析，最后转换为本地显示
-      const parseToLocal = (v: any) =>
-        (DateTime as any).isDateTime?.(v) ? (v as DateTime).toLocal() : v ? DateTime.fromISO(String(v), { setZone: true }).toLocal() : null;
-      setStartDT(parseToLocal(event.start ?? event.dtstart));
-      setEndDT(parseToLocal(event.end ?? event.dtend ?? event.start ?? event.dtstart));
-      // 初始化读取
-      setAlertOffset((event as any).alertOffset ?? -1);
-    } else {
+    if (!event) {
       setTitle("");
       setLocation("");
       setNotes("");
       setStartDT(null);
       setEndDT(null);
+      setAlertOffset(-1);
+      return;
     }
-  }, [event]);
+
+    setTitle(event.title ?? "");
+    setLocation((event as any).location ?? "");
+    setNotes((event as any).notes ?? "");
+
+    const parseToLocal = (v: any) =>
+      (DateTime as any).isDateTime?.(v) ? (v as DateTime).toLocal() : v ? DateTime.fromISO(String(v), { setZone: true }).toLocal() : null;
+    setStartDT(parseToLocal(event.start ?? event.dtstart));
+    setEndDT(parseToLocal(event.end ?? event.dtend ?? event.start ?? event.dtstart));
+
+    // 读取 alertOffset：优先实例自身 -> 回退 parent（从 items 中查找） -> 默认 -1
+    try {
+      const rawAlert = (event as any).alertOffset;
+      let ao: number | null = null;
+      if (rawAlert != null) {
+        ao = typeof rawAlert === "number" ? rawAlert : Number(rawAlert);
+      }
+
+      if (ao == null || Number.isNaN(ao)) {
+        const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
+        const parsedParentFromId = typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
+        const parentId = instOriginalId ?? parsedParentFromId ?? event.id;
+
+        if (parentId && Array.isArray(items)) {
+          const parent = (items as any[]).find((it) => it.id === parentId);
+          const pRaw = parent?.alertOffset;
+          if (pRaw != null) {
+            ao = typeof pRaw === "number" ? pRaw : Number(pRaw);
+          }
+        }
+      }
+
+      setAlertOffset(Number.isFinite(ao as number) ? (ao as number) : -1);
+    } catch (e) {
+      setAlertOffset(-1);
+    }
+  }, [event, items]);
 
   // helper: determine parent id (original event id) for an instance
   const resolveParentId = (ev: any) => {

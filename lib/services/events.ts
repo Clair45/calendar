@@ -3,7 +3,7 @@ import { DateTime } from "luxon";
 
 export type EventRecord = {
   id: string;
-  title: string;
+  title?: string;
   dtstart: string; // ISO
   dtend?: string; // ISO
   rrule?: string;
@@ -11,6 +11,11 @@ export type EventRecord = {
   rdate?: string[]; // ISO
   timezone?: string;
   notes?: string;
+  // 新增可选字段，用于提醒偏移（单位：分钟），兼容 string/number/null
+  alertOffset?: number | string | null;
+  // 若代码中使用 originalId / parentId，也一并声明
+  originalId?: string | null;
+  parentId?: string | null;
 };
 
 const STORAGE_KEY = "myapp:events:v1";

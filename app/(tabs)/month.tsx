@@ -46,7 +46,7 @@ export default function MonthView() {
     () =>
       (storedEvents ?? []).map((ev) => ({
         id: ev.id,
-        title: ev.title,
+        title: ev.title ?? "Event",
         dtstart: ev.dtstart,
         dtend: ev.dtend,
         rrule: ev.rrule,

@@ -38,7 +38,8 @@ export default function DayView() {
     try {
       const input = (storedEvents ?? []).map((ev) => ({
         id: ev.id,
-        title: ev.title,
+        // 确保 title 始终为 string，避免传入 undefined
+        title: ev.title ?? 'Event',
         dtstart: ev.dtstart,
         dtend: ev.dtend,
         rrule: ev.rrule,

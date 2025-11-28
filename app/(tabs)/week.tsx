@@ -44,7 +44,7 @@ export default function WeekView() {
     // 保留 location 字段并建立映射
     const input = (storedEvents ?? []).map((ev) => ({
       id: ev.id,
-      title: ev.title,
+      title: ev.title ?? "Event",
       dtstart: ev.dtstart,
       dtend: ev.dtend,
       rrule: ev.rrule,
