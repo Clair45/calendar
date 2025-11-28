@@ -96,18 +96,76 @@ export default function DayView() {
   }, [storedEvents, dayStart, dayEnd]);
 
   const positionedEvents = useMemo(() => {
-    return dayEvents.map((ev) => {
-      const top = (ev.start.hour + ev.start.minute / 60) * HOUR_HEIGHT;
-      const durationHours = Math.max(0.25, (ev.end.diff(ev.start, 'minutes').minutes || 15) / 60);
-      const height = Math.max(48, durationHours * HOUR_HEIGHT); // 提高最小高度，确保 title/time/location 可见
-      return { ...ev, top, height };
-    });
+    // 1. 按开始时间排序
+    const sorted = [...dayEvents].sort((a, b) => a.start.toMillis() - b.start.toMillis());
+
+    // 2. 分组重叠事件 (Cluster) 并分配列 (Column)
+    const clusters: any[][] = [];
+    let currentCluster: any[] = [];
+    let clusterEnd = -1;
+
+    for (const ev of sorted) {
+      const startMs = ev.start.toMillis();
+      const endMs = ev.end.toMillis();
+
+      // 如果当前事件开始时间早于当前簇的结束时间，说明有重叠（或连带重叠）
+      if (currentCluster.length > 0 && startMs < clusterEnd) {
+        currentCluster.push(ev);
+        clusterEnd = Math.max(clusterEnd, endMs);
+      } else {
+        if (currentCluster.length > 0) clusters.push(currentCluster);
+        currentCluster = [ev];
+        clusterEnd = endMs;
+      }
+    }
+    if (currentCluster.length > 0) clusters.push(currentCluster);
+
+    const result: any[] = [];
+
+    // 3. 计算每个事件的布局位置
+    for (const cluster of clusters) {
+      // 简单的列分配算法 (First Fit)
+      const columns: number[] = []; // 记录每一列最后一个事件的结束时间
+
+      for (const ev of cluster) {
+        let placed = false;
+        // 尝试放入已有的列
+        for (let i = 0; i < columns.length; i++) {
+          if (columns[i] <= ev.start.toMillis()) {
+            columns[i] = ev.end.toMillis();
+            (ev as any).colIndex = i;
+            placed = true;
+            break;
+          }
+        }
+        // 放不下则开启新列
+        if (!placed) {
+          columns.push(ev.end.toMillis());
+          (ev as any).colIndex = columns.length - 1;
+        }
+      }
+
+      const totalCols = columns.length;
+      for (const ev of cluster) {
+        const top = (ev.start.hour + ev.start.minute / 60) * HOUR_HEIGHT;
+        const durationHours = Math.max(0.25, (ev.end.diff(ev.start, 'minutes').minutes || 15) / 60);
+        const height = Math.max(24, durationHours * HOUR_HEIGHT);
+        
+        // 计算宽度和左边距百分比
+        const colIndex = (ev as any).colIndex || 0;
+        const widthPct = 100 / totalCols;
+        const leftPct = colIndex * widthPct;
+
+        result.push({ ...ev, top, height, leftPct, widthPct });
+      }
+    }
+    return result;
   }, [dayEvents]);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [nowTop, setNowTop] = useState<number | null>(null);
 
-  // scroll to "now" when viewing today (保留你已有逻辑)
+  // scroll to "now" when viewing today 
   useMemo(() => {
     const isToday = selected.hasSame(DateTime.local(), 'day');
     if (!isToday) {
@@ -176,10 +234,24 @@ export default function DayView() {
             ))}
 
             {positionedEvents.map((ev) => (
-              <TouchableOpacity key={ev.id + '-' + ev.start.toISO()} activeOpacity={0.85} onPress={() => setSelectedEvent(ev)} style={[styles.eventBlock, { top: ev.top, height: ev.height }]}>
-                <Text style={styles.eventTitle}>{ev.title}</Text>
+              <TouchableOpacity
+                key={ev.id + '-' + ev.start.toISO()}
+                activeOpacity={0.85}
+                onPress={() => setSelectedEvent(ev)}
+                // 动态设置 left 和 width，实现并列排放
+                style={[
+                  styles.eventBlock,
+                  {
+                    top: ev.top,
+                    height: ev.height,
+                    left: `${ev.leftPct}%`,
+                    width: `${ev.widthPct}%`,
+                  },
+                ]}
+              >
+                <Text style={styles.eventTitle} numberOfLines={1}>{ev.title}</Text>
                 {ev.location ? <Text style={styles.eventLocation} numberOfLines={1}>{ev.location}</Text> : null}
-                <Text style={styles.eventTime}>{ev.start.toFormat('HH:mm')} - {ev.end.toFormat('HH:mm')}</Text>
+                <Text style={styles.eventTime} numberOfLines={1}>{ev.start.toFormat('HH:mm')} - {ev.end.toFormat('HH:mm')}</Text>
               </TouchableOpacity>
             ))}
             <EventDetail visible={selectedEvent !== null} event={selectedEvent} onClose={() => setSelectedEvent(null)} />
@@ -224,10 +296,21 @@ const styles = StyleSheet.create({
   nowLabelText: { color: '#ff3b30', fontWeight: '700', fontSize: 12 },
   hourSlot: { borderTopWidth: 1, borderTopColor: '#f2f2f2' },
 
-  eventBlock: { position: 'absolute', left: 8, right: 8, backgroundColor: '#007bff', borderRadius: 6, padding: 8, zIndex: 10, opacity: 0.95 },
-  eventTitle: { color: '#fff', fontWeight: '600' },
-  eventLocation: { color: '#eaf4ff', fontSize: 12, marginTop: 4, opacity: 0.95 },
-  eventTime: { color: '#eaf4ff', fontSize: 12, marginTop: 4 },
+  // 修改 eventBlock 样式：移除固定的 left/right，改由内联样式控制
+  eventBlock: {
+    position: 'absolute',
+    // left: 8, right: 8,  <-- 移除这些固定值
+    backgroundColor: '#007bff',
+    borderRadius: 4,
+    padding: 4,
+    zIndex: 10,
+    opacity: 0.9,
+    borderWidth: 1,
+    borderColor: '#fff', // 增加白边区分并列事件
+  },
+  eventTitle: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  eventLocation: { color: '#eaf4ff', fontSize: 11, marginTop: 2, opacity: 0.95 },
+  eventTime: { color: '#eaf4ff', fontSize: 11, marginTop: 2 },
 
   headerRow: { height: 44, justifyContent: 'center', paddingLeft: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
   monthBackButton: { paddingVertical: 6, paddingHorizontal: 8 },

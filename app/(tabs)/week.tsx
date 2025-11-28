@@ -93,7 +93,7 @@ export default function WeekView() {
         return ev.start < dayEnd && ev.end > dayStart;
       }) as DemoEvent[];
 
-      out[key] = evs.map((ev) => {
+      out[key] = evs.map((ev, index) => {
         // 裁剪到当前 day 的可见区间
         const clippedStart = ev.start < dayStart ? dayStart : ev.start;
         const clippedEnd = ev.end > dayEnd ? dayEnd : ev.end;
@@ -104,8 +104,29 @@ export default function WeekView() {
         const top = startHour * HOUR_HEIGHT;
         const height = Math.max(40, durationHours * HOUR_HEIGHT);
 
-        // 返回时覆盖 start/end 为裁剪后的时间，便于渲染时显示正确的时段（也保留原 location 等）
-        return { ...ev, start: clippedStart, end: clippedEnd, top, height };
+        // --- 新增：计算重叠层级 ---
+        let overlapCount = 0;
+        // 简单检查：遍历排在它前面的事件，看是否有时间重叠
+        for (let i = 0; i < index; i++) {
+          const prev = evs[i];
+          // 如果前一个事件的结束时间晚于当前事件的开始时间，则视为重叠
+          // (前提是 evs 已经按开始时间排序过，这里默认 filter 出来的顺序通常是按时间序的，
+          //  如果 instances 未排序，建议在 filter 前先 sort 一下)
+          if (prev.end > clippedStart && prev.start < clippedEnd) {
+            overlapCount++;
+          }
+        }
+
+        // 返回时增加 indent (缩进等级) 和 zIndex
+        return { 
+          ...ev, 
+          start: clippedStart, 
+          end: clippedEnd, 
+          top, 
+          height,
+          indent: overlapCount, // 0, 1, 2...
+          zIndex: overlapCount + 10 
+        };
       });
     }
     return out;
@@ -154,10 +175,30 @@ export default function WeekView() {
                     ))}
 
                     {positioned.map((ev) => (
-                      <TouchableOpacity key={ev.id + '-' + ev.start.toISO()} activeOpacity={0.85} onPress={() => setSelectedEvent(ev)} style={[styles.eventBlock, { top: ev.top, height: ev.height }]}>
-                        <Text style={styles.eventTitle}>{ev.title}</Text>
+                      <TouchableOpacity 
+                        key={ev.id + '-' + ev.start.toISO()} 
+                        activeOpacity={0.85} 
+                        onPress={() => setSelectedEvent(ev)} 
+                        style={[
+                          styles.eventBlock, 
+                          { 
+                            top: ev.top, 
+                            height: ev.height,
+                            // 动态样式：
+                            // 1. 阶梯缩进：每个重叠层级向右移 12px，让下面的事件露出来
+                            left: 4 + ((ev as any).indent * 12), 
+                            // 2. 右侧固定，保证宽度足够
+                            right: 4, 
+                            // 3. 层级：越晚的越在上面
+                            zIndex: (ev as any).zIndex,
+                            // 4. 颜色：使用带透明度的背景，以便看到下面有东西
+                            backgroundColor: 'rgba(0, 123, 255, 0.85)' 
+                          }
+                        ]}
+                      >
+                        <Text style={styles.eventTitle} numberOfLines={1}>{ev.title}</Text>
                         {ev.location ? <Text style={styles.eventLocation} numberOfLines={1}>{ev.location}</Text> : null}
-                        <Text style={styles.eventTime}>
+                        <Text style={styles.eventTime} numberOfLines={1}>
                           {ev.start.toFormat("HH:mm")} - {ev.end.toFormat("HH:mm")}
                         </Text>
                       </TouchableOpacity>
@@ -199,8 +240,26 @@ const styles = StyleSheet.create({
   dayBody: { position: "relative", flex: 1 },
   hourSlot: { borderTopWidth: 1, borderTopColor: "#f9f9f9" },
 
-  eventBlock: { position: "absolute", left: 6, right: 6, backgroundColor: "#007bff", borderRadius: 6, padding: 8, zIndex: 10, opacity: 0.95 },
-  eventTitle: { color: "#fff", fontWeight: "600", fontSize: 12 },
-  eventLocation: { color: "#eaf4ff", fontSize: 11, opacity: 0.95, marginTop: 4 },
-  eventTime: { color: "#eaf4ff", fontSize: 11, marginTop: 4 },
+  eventBlock: { 
+    position: "absolute", 
+    // left: 6, right: 6, // <--- 删除固定的 left/right
+    // backgroundColor: "#007bff", // <--- 删除，改用内联 rgba 颜色
+    borderRadius: 6, 
+    padding: 6, // 稍微减小 padding 适应窄屏
+    // zIndex: 10, // <--- 删除，改用动态 zIndex
+    
+    // 新增：白色边框，让重叠时边界分明
+    borderWidth: 1,
+    borderColor: '#ffffff',
+    
+    // 阴影效果（可选，增加层次感）
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 2,
+  },
+  eventTitle: { color: "#fff", fontWeight: "600", fontSize: 11 }, // 字体稍微调小
+  eventLocation: { color: "#eaf4ff", fontSize: 10, opacity: 0.95, marginTop: 2 },
+  eventTime: { color: "#eaf4ff", fontSize: 10, marginTop: 2 },
 });

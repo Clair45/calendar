@@ -155,7 +155,8 @@ export default function MonthView() {
                 >
                   <Text style={[styles.dayNumber, isToday && styles.today]}>{day.day}</Text>
                   {dayEvents.slice(0, 2).map((e) => (
-                    <TouchableOpacity key={e.start.toISO()} onPress={() => setSelectedEvent(e)} activeOpacity={0.8}>
+                    // 修复：使用 e.id 作为 key，避免同一时间开始的事件导致 key 重复报错
+                    <TouchableOpacity key={e.id} onPress={() => setSelectedEvent(e)} activeOpacity={0.8}>
                       <Text numberOfLines={1} style={styles.eventText}>{e.title}</Text>
                     </TouchableOpacity>
                   ))}
