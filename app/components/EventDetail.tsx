@@ -268,12 +268,33 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       const parentId = resolveParentId(event);
       const parent = items.find((it: any) => it.id === parentId);
 
-      const occStart = (DateTime as any).isDateTime?.(event.start)
-        ? event.start
-        : DateTime.fromISO(String(event.start ?? event.dtstart));
+      // 确保获取的是本地时间对象（墙上时间）
+      const getLocalDT = (v: any) => {
+        if ((DateTime as any).isDateTime?.(v)) return (v as DateTime).toLocal();
+        if (v) return DateTime.fromISO(String(v), { setZone: true }).toLocal();
+        return DateTime.local();
+      };
+
+      const occStart = getLocalDT(event.start ?? event.dtstart);
 
       if (parent && parent.rrule && typeof update === "function") {
-        const until = occStart.minus({ seconds: 1 }).toUTC().toFormat("yyyyMMdd'T'HHmmss'Z'");
+        // 目标：删除包含当前实例在内的后续所有实例
+        // UNTIL 是包含性的，所以要设为“当前开始时间 - 1秒”
+        const untilLocal = occStart.minus({ seconds: 1 });
+
+        // 关键修复：配合 recurrence.ts 的“伪 UTC”策略
+        // 我们必须把“本地时间组件”直接拼成 UTC 字符串，而不是转为真实 UTC。
+        // 否则在 UTC-X 时区会导致 UNTIL 晚于当前时间（导致没删掉），或 UTC+X 时区导致多删。
+        const untilUtc = DateTime.utc(
+          untilLocal.year,
+          untilLocal.month,
+          untilLocal.day,
+          untilLocal.hour,
+          untilLocal.minute,
+          untilLocal.second
+        );
+        const until = untilUtc.toFormat("yyyyMMdd'T'HHmmss'Z'");
+
         let newRrule = String(parent.rrule);
         if (/UNTIL=/i.test(newRrule)) {
           newRrule = newRrule.replace(/UNTIL=[^;]*/i, `UNTIL=${until}`);

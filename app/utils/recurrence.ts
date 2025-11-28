@@ -5,23 +5,23 @@ import { rrulestr } from "rrule";
 export interface InputEvent {
   id: string;
   title: string;
-  dtstart: string; // ISO开始时间
-  dtend?: string; // ISO结束时间
-  rrule?: string; // RFC5545 RRULE（重复规则）
-  exdate?: string[]; // 排除日期
-  rdate?: string[]; // 附加日期
-  allDay?: boolean;
-  timezone?: string; // 时区（本地）
+  dtstart: string; // ISO字符串（本地浮动时间，例如 "2025-11-01T17:45:00"）
+  dtend?: string;
+  rrule?: string;
+  exdate?: string[];
+  rdate?: string[];
+  timezone?: string;
+  [key: string]: any;
 }
 
 //事件实例接口 - 展开后的具体事件实例
 export interface EventInstance {
-  // id 对应实例（instance id），originalId 指向原始父事件 id
   id: string;
   originalId: string;
   title: string;
   start: DateTime;
   end: DateTime;
+  [key: string]: any;
 }
 
 /**
@@ -37,81 +37,120 @@ export function expandRecurrences(
   rangeStart: DateTime,
   rangeEnd: DateTime
 ): EventInstance[] {
-
   const instances: EventInstance[] = [];
 
   for (const ev of events) {
-    // 不指定 zone，让 Luxon 按字符串中的 offset/Z 自动解析
-    // （dtstart 已是带 offset 的 ISO，如 2025-11-01T17:45:00+08:00）
-    const dtstart = DateTime.fromISO(ev.dtstart, { setZone: true });
-    const dtend = ev.dtend ? DateTime.fromISO(ev.dtend, { setZone: true })
-                           : dtstart.plus({ hours: 1 });
-    const duration = dtend.diff(dtstart);
+    // 1. 解析为本地时间（获取墙上时间的年/月/日/时/分）
+    const localStart = DateTime.fromISO(ev.dtstart, { setZone: false });
+    const localEnd = ev.dtend
+      ? DateTime.fromISO(ev.dtend, { setZone: false })
+      : localStart.plus({ hours: 1 });
+    const duration = localEnd.diff(localStart);
 
-    // Helper function 推送单个事件实例到结果数组(instances)
-    const pushInstance = (occDate: Date) => {
-      // 同样用 setZone: true，按 occDate 本身的时区解析
-      const occStart = DateTime.fromJSDate(occDate, { zone: dtstart.zone });
+    // 2. 构造“伪 UTC”时间 (Fake UTC)
+    // 目的：让 RRULE 只处理纯数字时间（如 17:45），忽略时区/DST 变化
+    const utcStart = DateTime.utc(
+      localStart.year,
+      localStart.month,
+      localStart.day,
+      localStart.hour,
+      localStart.minute,
+      localStart.second
+    );
+
+    // Helper: 将 RRULE 生成的“伪 UTC”还原回“本地墙上时间”
+    const pushInstance = (fakeUtcDate: Date) => {
+      // 把 Date 当作 UTC 解析，提取年/月/日/时/分
+      const u = DateTime.fromJSDate(fakeUtcDate, { zone: "utc" });
+      
+      // 用提取的数字构造本地时间 (保持 17:45 不变)
+      const occStart = DateTime.local(
+        u.year,
+        u.month,
+        u.day,
+        u.hour,
+        u.minute,
+        u.second
+      );
       const occEnd = occStart.plus(duration);
-      // overlap check with range
+
+      // 范围检查
       if (occEnd <= rangeStart || occStart >= rangeEnd) return;
-      // 实例 id 使用父 id + occurrence 时间，避免与父事件 id 冲突
+
       const instanceId = `${ev.id}::${occStart.toISO()}`;
-      instances.push({ id: instanceId, originalId: ev.id, title: ev.title, start: occStart, end: occEnd });
+      instances.push({
+        ...ev, // 继承父事件其它属性
+        id: instanceId,
+        originalId: ev.id,
+        title: ev.title,
+        start: occStart,
+        end: occEnd,
+      });
     };
- 
-    // 重复事件 - 使用RRULE展开
+
     if (ev.rrule) {
       try {
-        // 解析重复规则字符串，提供基准开始时间
-        const rule = rrulestr(ev.rrule, { dtstart: dtstart.toJSDate() } as any) as any;
-        // Get occurrences within [rangeStart, rangeEnd]
+        // 传入“伪 UTC”给 RRULE
+        const rule = rrulestr(ev.rrule, { dtstart: utcStart.toJSDate() } as any) as any;
+
         if (typeof rule.between === "function") {
-          const occs = rule.between(rangeStart.toJSDate(), rangeEnd.toJSDate(), true);
+          // 这里的 range 也需要转为 UTC 范围进行比较，或者简单地取大范围
+          // 为简单起见，这里让 rule 生成所有可能，pushInstance 内部再做精确过滤
+          // (或者把 rangeStart/End 转为 Fake UTC 传入以提高性能)
+          const fakeRangeStart = DateTime.utc(rangeStart.year, rangeStart.month, rangeStart.day).minus({ days: 1 }).toJSDate();
+          const fakeRangeEnd = DateTime.utc(rangeEnd.year, rangeEnd.month, rangeEnd.day).plus({ days: 1 }).toJSDate();
+          
+          const occs = rule.between(fakeRangeStart, fakeRangeEnd, true);
           for (const d of occs) pushInstance(d);
         } else if (typeof rule.all === "function") {
-          // fallback
           const occs = rule.all();
-          for (const d of occs) {
-            if (d >= rangeStart.toJSDate() && d <= rangeEnd.toJSDate()) pushInstance(d);
-          }
+          for (const d of occs) pushInstance(d);
         }
-      } catch {
-        // fallback
+      } catch (e) {
+        console.warn("RRULE parse error", e);
       }
     } else {
-      // 单次事件：直接检查范围
-      if (!(dtend <= rangeStart || dtstart >= rangeEnd)) {
-        // 对于非重复事件，instance id 与 originalId 均为父 id（兼容原逻辑）
-        instances.push({ id: ev.id, originalId: ev.id, title: ev.title, start: dtstart, end: dtend });
+      // 非重复事件：直接使用 localStart
+      if (!(localEnd <= rangeStart || localStart >= rangeEnd)) {
+        instances.push({
+          ...ev,
+          id: ev.id,
+          originalId: ev.id,
+          title: ev.title,
+          start: localStart,
+          end: localEnd,
+        });
       }
     }
- 
-    // 处理额外日期 (RDATE)
+
+    // 处理 RDATE (也按墙上时间处理)
     if (ev.rdate && ev.rdate.length) {
       for (const r of ev.rdate) {
         try {
-          const d = DateTime.fromISO(r, { setZone: true }).toJSDate();
-          pushInstance(d);
+          const rLocal = DateTime.fromISO(r, { setZone: false });
+          const rUtc = DateTime.utc(rLocal.year, rLocal.month, rLocal.day, rLocal.hour, rLocal.minute, rLocal.second);
+          pushInstance(rUtc.toJSDate());
         } catch {}
       }
     }
- 
-    // 处理排除日期 (EXDATE)
+
+    // 处理 EXDATE (按墙上时间字符串匹配)
     if (ev.exdate && ev.exdate.length) {
-      const exSet = new Set(ev.exdate.map((s) => DateTime.fromISO(s, { setZone: true }).toISO()));
-      // 反向遍历 移除属于当前事件且开始时间匹配排除日期的事件实例
+      // exdate 里的字符串已经是无 offset 的 ISO (如 "2025-11-02T17:45:00")
+      const exSet = new Set(ev.exdate.map((s) => DateTime.fromISO(s, { setZone: false }).toISO({ includeOffset: false })));
+      
       for (let i = instances.length - 1; i >= 0; i--) {
-        // instances[i].originalId 对应父 id（单次事件 originalId === id）
         if (instances[i].originalId === ev.id) {
-          const iso = instances[i].start.toISO();
-          if (exSet.has(iso)) instances.splice(i, 1);
+          // 比较生成的实例的墙上时间 ISO
+          const iso = instances[i].start.toISO({ includeOffset: false });
+          if (iso && exSet.has(iso)) {
+            instances.splice(i, 1);
+          }
         }
       }
     }
   }
- 
-  // Sort instances by start
+
   instances.sort((a, b) => a.start.toMillis() - b.start.toMillis());
   return instances;
 }

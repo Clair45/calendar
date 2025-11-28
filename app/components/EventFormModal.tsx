@@ -47,15 +47,8 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   const defaultStart = useMemo(() => {
     const now = DateTime.local();
     const baseDate = initialDate ? initialDate.startOf("day") : now.startOf("day");
-    // 使用 set() 而不是 plus()，直接替换时间分量
-    return baseDate.set({
-      hour: now.hour,
-      minute: now.minute,
-      second: 0,
-      millisecond: 0,
-    });
-    // const base = baseDate.plus({ hours: now.hour });
-    // return base.startOf("hour");
+    const base = baseDate.plus({ hours: now.hour });
+    return base.startOf("hour");
   }, [initialDate]);
 
   const [title, setTitle] = useState("");
