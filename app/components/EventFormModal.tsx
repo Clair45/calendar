@@ -68,48 +68,61 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   const [datePicked, setDatePicked] = useState<boolean>(!!initialDate);
   // 控制哪一项正在显示内联日历：null | 'start' | 'end'
   const [showCalendarFor, setShowCalendarFor] = useState<null | "start" | "end">(null);
-   const [showTimePicker, setShowTimePicker] = useState<null | "start" | "end">(null);
-   const timeScrollRef = useRef<ScrollView | null>(null);
- 
-   const canCreate = title.trim().length > 0;
- 
-   useEffect(() => {
-     if (visible) {
-       setTitle("");
-       setLocation("");
-       const s = normalizeLocal(defaultStart);
-       setStart(s);
-       setEnd(normalizeLocal(s.plus({ hours: 1 })));
-       setRecurrence("none");
-       setRecurrenceEndMode("never");
-       setUntilDate(s);
-       setShowUntilCalendar(false);
-       if (!initialDate) {
-         setDatePicked(false);
-         setShowCalendarFor("start");
-       } else {
-         setDatePicked(true);
-         setShowCalendarFor(null);
-       }
-     }
-   }, [visible, defaultStart]);
- 
-   const invalidTime = end.toMillis() <= start.toMillis(); // 结束不得早于或等于开始
+  const [showTimePicker, setShowTimePicker] = useState<null | "start" | "end">(null);
+  const timeScrollRef = useRef<ScrollView | null>(null);
 
-   async function onCreate() {
-     if (!canCreate) return;
-     if (invalidTime) {
-       Alert.alert("结束时间无效", "结束时间必须晚于开始时间。请选择合理的结束时间。", [
-         { text: "返回修改", style: "cancel" },
-         {
-           text: "重置为开始后5分钟",
-           onPress: () => {
-             setEnd(start.plus({ minutes: 5 }));
-           },
-         },
-       ]);
-       return;
-     }
+  // 辅助函数：打开日历时，自动关闭时间选择器
+  const openCalendar = (which: "start" | "end") => {
+    setShowTimePicker(null); // 互斥：关闭时间
+    setShowCalendarFor(which);
+  };
+
+  // 整体关闭函数：重置所有状态
+  const handleCloseModal = () => {
+    setShowCalendarFor(null);
+    setShowTimePicker(null);
+    setShowUntilCalendar(false);
+    onClose();
+  };
+
+  // 计算无效时间：结束不得早于或等于开始
+  const invalidTime = end.toMillis() <= start.toMillis();
+
+  useEffect(() => {
+    if (visible) {
+      setTitle("");
+      setLocation("");
+      const s = normalizeLocal(defaultStart);
+      setStart(s);
+      setEnd(normalizeLocal(s.plus({ hours: 1 })));
+      setRecurrence("none");
+      setRecurrenceEndMode("never");
+      setUntilDate(s);
+      setShowUntilCalendar(false);
+      if (!initialDate) {
+        setDatePicked(false);
+        setShowCalendarFor("start");
+      } else {
+        setDatePicked(true);
+        setShowCalendarFor(null);
+      }
+    }
+  }, [visible, defaultStart]);
+
+  async function onCreate() {
+    if (!canCreate) return;
+    if (invalidTime) {
+      Alert.alert("结束时间无效", "结束时间必须晚于开始时间。请选择合理的结束时间。", [
+        { text: "返回修改", style: "cancel" },
+        {
+          text: "重置为开始后5分钟",
+          onPress: () => {
+            setEnd(start.plus({ minutes: 5 }));
+          },
+        },
+      ]);
+      return;
+    }
 
     // 构建 rrule，并在选择了 "于日期" 时添加 UNTIL
     let rrule =
@@ -174,16 +187,19 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
       setEnd(ne);
     }
     setDatePicked(true);
-    setShowCalendarFor(null);
+    setShowCalendarFor(null); // 选完即关闭
   }
 
+  //辅助函数：打开时间时，自动关闭日历
   function openTimePicker(which: "start" | "end") {
     if (!datePicked) {
       // 强制先选日期
-      setShowCalendarFor("start");
+      openCalendar("start");
       return;
     }
+    setShowCalendarFor(null); // 互斥：关闭日历
     setShowTimePicker(which);
+    
     setTimeout(() => {
       const t = which === "start" ? start : end;
       // 只滚动到分钟条目（保留小时由左右按钮控制）
@@ -195,7 +211,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
           animated: false,
         });
       }
-    }, 100);
+    }, 50);
   }
 
   function onTimeScrollEnd(e: any, which: "start" | "end") {
@@ -244,7 +260,8 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   }
 
   // 小日历内联面板（渲染在 start/end 区块下方）
-  function CalendarPicker({ visible, value, onPick, onClose }: { visible: boolean; value: DateTime; onPick: (d: DateTime) => void; onClose: () => void }) {
+  // 修改：增加 minDate 可选属性
+  function CalendarPicker({ visible, value, onPick, onClose, minDate }: { visible: boolean; value: DateTime; onPick: (d: DateTime) => void; onClose: () => void; minDate?: DateTime }) {
     const [month, setMonth] = useState<DateTime>(() => value.startOf("month"));
     useEffect(() => setMonth(value.startOf("month")), [value]);
 
@@ -271,13 +288,31 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
           {days.map((d) => {
             const inMonth = d.hasSame(month, "month");
             const isSelected = d.hasSame(value, "day");
+            
+            // 新增：判断是否禁用（早于 minDate 的日期）
+            // 比较逻辑：如果当前格子日期(d) < 最小允许日期(minDate)的天初，则禁用
+            const isDisabled = minDate ? d.startOf('day') < minDate.startOf('day') : false;
+
             return (
               <TouchableOpacity
                 key={d.toISODate()}
-                style={[styles.dayCell, !inMonth && styles.dayCellMuted, isSelected && styles.dayCellSel]}
+                // 修改：应用禁用样式和 disabled 属性
+                style={[
+                  styles.dayCell, 
+                  !inMonth && styles.dayCellMuted, 
+                  isSelected && styles.dayCellSel,
+                  isDisabled && styles.dayCellDisabled // 新增样式
+                ]}
                 onPress={() => onPick(d)}
+                disabled={isDisabled} // 禁用点击
               >
-                <Text style={[styles.dayText, isSelected && styles.dayTextSel]}>{d.day}</Text>
+                <Text style={[
+                  styles.dayText, 
+                  isSelected && styles.dayTextSel,
+                  isDisabled && styles.dayTextDisabled // 新增样式
+                ]}>
+                  {d.day}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -380,14 +415,17 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
       </View>
     );
    }
- 
+
+
+  const canCreate = title.trim().length > 0;
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={handleCloseModal}>
         <View style={styles.backdrop}>
           <View style={styles.sheet}>
             <View style={styles.header}>
-              <TouchableOpacity onPress={onClose} accessibilityRole="button" style={styles.headerBtn}>
+              {/* 修改取消按钮的 onPress 为 handleCloseModal */}
+              <TouchableOpacity onPress={handleCloseModal} accessibilityRole="button" style={styles.headerBtn}>
                 <Text style={styles.cancelText}>取消</Text>
               </TouchableOpacity>
               <Text style={styles.headerTitle}>新建日程</Text>
@@ -420,7 +458,8 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                       <TouchableOpacity onPress={() => incHour(1, "start")} style={styles.smallBtn}><Text>+1h</Text></TouchableOpacity>
                     </View>
                     <View style={styles.centerControls}>
-                      <TouchableOpacity onPress={() => setShowCalendarFor("start")} style={styles.dateBtnFull}>
+                      {/* 修改 onPress 调用新的互斥函数 */}
+                      <TouchableOpacity onPress={() => openCalendar("start")} style={styles.dateBtnFull}>
                         <Text>{start.toFormat("yyyy-LL-dd")}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => openTimePicker("start")} style={styles.timeDisplayFull} disabled={!datePicked}>
@@ -438,7 +477,8 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                       <TouchableOpacity onPress={() => incHour(1, "end")} style={styles.smallBtn}><Text>+1h</Text></TouchableOpacity>
                     </View>
                     <View style={styles.centerControls}>
-                      <TouchableOpacity onPress={() => setShowCalendarFor("end")} style={styles.dateBtnFull}>
+                      {/* 修改 onPress 调用新的互斥函数 */}
+                      <TouchableOpacity onPress={() => openCalendar("end")} style={styles.dateBtnFull}>
                         <Text>{end.toFormat("yyyy-LL-dd")}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => openTimePicker("end")} style={styles.timeDisplayFull} disabled={!datePicked}>
@@ -447,7 +487,8 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                     </View>
                   </View>
                 </View>
-                {/* 内联面板：在对应字段下方显示日历或时间滚轮 */}
+                
+                {/* 内联面板：互斥显示 */}
                 {showCalendarFor === "start" && (
                   <View style={{ width: "100%", paddingTop: 8 }}>
                     <CalendarPicker
@@ -606,6 +647,8 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                           <CalendarPicker
                             visible={true}
                             value={untilDate}
+                            // 新增：传入 minDate，限制不能早于事件结束时间
+                            minDate={end}
                             onPick={(d): void => {
                               setUntilDate(d);
                               setShowUntilCalendar(false);
@@ -688,8 +731,14 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
    dayCell: { width: 40, height: 40, alignItems: "center", justifyContent: "center", margin: 2, borderRadius: 6 },
    dayCellMuted: { opacity: 0.4 },
    dayCellSel: { backgroundColor: "#007bff" },
+   // 新增禁用样式
+   dayCellDisabled: { backgroundColor: "#f5f5f5", opacity: 0.5 },
+   
    dayText: { color: "#333" },
    dayTextSel: { color: "#fff", fontWeight: "600" },
+   // 新增禁用文字样式
+   dayTextDisabled: { color: "#ccc" },
+   
    calendarFooter: { marginTop: 8, alignItems: "flex-end" },
  
    timePicker: { width: 200, backgroundColor: "#fff", borderRadius: 10, overflow: "hidden" },
