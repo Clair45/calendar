@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { DateTime } from "luxon";
-import { useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { PanResponder, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useEvents } from '../../lib/hooks/useEvents';
 import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
@@ -21,6 +21,28 @@ type DemoEvent = {
 export default function WeekView() {
   const params = useLocalSearchParams() as { date?: string | string[] | undefined };
   const router = useRouter();
+  // PanResponder：左右滑动切换上一周/下一周
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gs) =>
+        Math.abs(gs.dx) > Math.abs(gs.dy) && Math.abs(gs.dx) > 10,
+      onPanResponderRelease: (_evt, gs) => {
+        const THRESHOLD = 50;
+        if (gs.dx < -THRESHOLD) {
+          // 向左滑 — 下一周
+          const next = selected.plus({ weeks: 1 }).startOf("week");
+          const nextIso = next.toISO() ?? next.toFormat("yyyy-LL-dd'T'HH:mm:ss");
+          router.push(`/week?date=${encodeURIComponent(nextIso)}`);
+        } else if (gs.dx > THRESHOLD) {
+          // 向右滑 — 上一周
+          const prev = selected.minus({ weeks: 1 }).startOf("week");
+          const prevIso = prev.toISO() ?? prev.toFormat("yyyy-LL-dd'T'HH:mm:ss");
+          router.push(`/week?date=${encodeURIComponent(prevIso)}`);
+        }
+      },
+    })
+  ).current;
+
   const { items: storedEvents } = useEvents();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
@@ -133,7 +155,7 @@ export default function WeekView() {
   }, [days, instances]);
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} {...panResponder.panHandlers}>
       <View style={styles.header}>
         <Text style={styles.title}>Week of {weekStart.toFormat("LLL dd, yyyy")}</Text>
         <View style={styles.rightControlsHeader}>

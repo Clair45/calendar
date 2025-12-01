@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { DateTime } from "luxon";
-import { useMemo, useState } from "react";
-import { Button, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { Button, Modal, PanResponder, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useEvents } from '../../lib/hooks/useEvents';
 import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
@@ -35,6 +35,23 @@ function generateMonthMatrix(monthDate: DateTime, weekStartsOnMonday = true) {
 export default function MonthView() {
    // 当前显示的月份状态（默认为当前月份）
    const [current, setCurrent] = useState<DateTime>(() => DateTime.local().startOf("month"));
+  // PanResponder 用于左右滑动切换月份
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gs) =>
+        Math.abs(gs.dx) > Math.abs(gs.dy) && Math.abs(gs.dx) > 10,
+      onPanResponderRelease: (_evt, gs) => {
+        const THRESHOLD = 50;
+        if (gs.dx < -THRESHOLD) {
+          // 向左滑 — 下一个月
+          setCurrent((c) => c.plus({ months: 1 }));
+        } else if (gs.dx > THRESHOLD) {
+          // 向右滑 — 上一个月
+          setCurrent((c) => c.minus({ months: 1 }));
+        }
+      },
+    })
+  ).current;
    const [pickerVisible, setPickerVisible] = useState(false);
    const [pickerYear, setPickerYear] = useState<number>(current.year);
    const [showCreateModal, setShowCreateModal] = useState(false);
@@ -110,24 +127,18 @@ export default function MonthView() {
   const router = useRouter();
 
   return (
-    <View style={styles.container}>
+    // 左右滑动整个视图可切换月份
+    <View style={styles.container} {...panResponder.panHandlers}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => setCurrent((c) => c.minus({ months: 1 }))} style={styles.navButton}>
-          <Text>{"<"}</Text>
-        </TouchableOpacity>
 
         <TouchableOpacity onPress={() => { setPickerYear(current.year); setPickerVisible(true); }}>
           <Text style={styles.title}>{current.toFormat("LLLL yyyy")}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => setCurrent((c) => c.plus({ months: 1 }))} style={styles.navButton}>
-          <Text>{">"}</Text>
-        </TouchableOpacity>
-
-        {/* Add button (右上) */}
+        {/* Add button */}
         <View style={styles.headerRight}>
           <TouchableOpacity onPress={() => setShowCreateModal(true)} style={{ padding: 6 }}>
-            <Text style={styles.addButton}>＋</Text>
+            <Text style={styles.addButton}>+</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -262,6 +273,6 @@ const styles = StyleSheet.create({
   monthColumn: { flex: 1, paddingLeft: 8, flexWrap: 'wrap', flexDirection: 'row', justifyContent: 'space-between' },
   monthItem: { width: '30%', paddingVertical: 10, alignItems: 'center', marginBottom: 8, borderRadius: 6, backgroundColor: '#f7f7f7' },
   monthText: { fontSize: 14, color: '#222' },
-  headerRight: { position: 'absolute', right: 12, top: 12 },
+  headerRight: { position: 'absolute', right: 10, top: 2 },
   addButton: { fontSize: 22, color: '#007bff' },
 });

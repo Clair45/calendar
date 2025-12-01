@@ -72,31 +72,3 @@ export default function RootLayout() {
     </RootLayoutContext.Provider>
   );
 }
-
-// 3. 调度新通知
-export async function scheduleNotification({
-  title,
-  minutesBefore,
-  eventId,
-}: { title: string; minutesBefore: number; eventId: string }) {
-  const triggerDate = new Date(Date.now() + minutesBefore * 60 * 1000);
-  
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: title,
-      body: `${title} 将在 ${minutesBefore === 0 ? '现在' : minutesBefore + '分钟后'} 开始`,
-      data: { eventId },
-    },
-    // 修改此处：添加 type 属性
-    trigger: minutesBefore === 0 ? null : { 
-      type: Notifications.SchedulableTriggerInputTypes.DATE,
-      date: triggerDate 
-    },
-    identifier: `event-${eventId}`, 
-  });
-}
-
-export async function cancelEventNotification(eventId: string) {
-  //  标识符需要与 scheduleNotification 中设置的 identifier (`event-${eventId}`) 保持一致
-  await Notifications.cancelScheduledNotificationAsync(`event-${eventId}`);
-}

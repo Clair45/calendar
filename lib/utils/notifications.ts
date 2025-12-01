@@ -1,5 +1,5 @@
-import * as Notifications from 'expo-notifications';
-import { DateTime } from 'luxon';
+import * as Notifications from "expo-notifications";
+import { DateTime } from "luxon";
 
 export async function scheduleEventNotification(
   eventId: string,
@@ -7,31 +7,21 @@ export async function scheduleEventNotification(
   startTime: DateTime,
   minutesBefore: number
 ) {
-  // 1. 先取消旧通知
   await cancelEventNotification(eventId);
-
   if (minutesBefore < 0) return;
-
-  // 2. 计算触发时间
-  // 如果 minutesBefore = 0，则在 startTime 触发
   const triggerDate = startTime.minus({ minutes: minutesBefore }).toJSDate();
-  
-  // 如果触发时间已过（容差 5秒），则不调度
   if (triggerDate.getTime() <= Date.now() - 5000) return;
 
-  // 3. 调度
-  // 注意：triggerDate 如果是过去的时间，scheduleNotificationAsync 会立即触发或失败
-  // 我们希望它在指定时间触发。
   await Notifications.scheduleNotificationAsync({
     content: {
       title: "日程提醒",
-      body: `${title} ${minutesBefore === 0 ? '现在开始' : `将在 ${minutesBefore} 分钟后开始`}`,
+      body: `${title} ${minutesBefore === 0 ? "现在开始" : `将在 ${minutesBefore} 分钟后开始`}`,
       data: { eventId },
-      sound: true, // 确保有声音
+      sound: true,
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
-      date: triggerDate, // 必须是未来的时间
+      date: triggerDate,
     },
     identifier: `event-${eventId}`,
   });

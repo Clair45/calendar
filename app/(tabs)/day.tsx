@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { DateTime } from 'luxon';
 import { useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { PanResponder, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useEvents } from '../../lib/hooks/useEvents';
 import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
@@ -183,8 +183,30 @@ export default function DayView() {
     }
   }, [selected]);
 
+  // PanResponder：左右滑动切换到昨天/明天
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gs) =>
+        Math.abs(gs.dx) > Math.abs(gs.dy) && Math.abs(gs.dx) > 10,
+      onPanResponderRelease: (_evt, gs) => {
+        const THRESHOLD = 50;
+        if (gs.dx < -THRESHOLD) {
+          // 向左滑：明天
+          const next = selected.plus({ days: 1 }).startOf('day');
+          const nextIso = next.toISO() ?? next.toFormat("yyyy-LL-dd'T'HH:mm:ss");
+          router.push(`/day?date=${encodeURIComponent(nextIso)}`);
+        } else if (gs.dx > THRESHOLD) {
+          // 向右滑：昨天
+          const prev = selected.minus({ days: 1 }).startOf('day');
+          const prevIso = prev.toISO() ?? prev.toFormat("yyyy-LL-dd'T'HH:mm:ss");
+          router.push(`/day?date=${encodeURIComponent(prevIso)}`);
+        }
+      },
+    }),
+  ).current;
+
   return (
-    <View style={styles.container}>
+    <View style={styles.container} {...panResponder.panHandlers}>
       {/* 顶部：月份/操作 行 */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => router.push('/month')} style={styles.monthBackButton}>

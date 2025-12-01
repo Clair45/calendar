@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
 // 补充导入调度函数
-import { cancelEventNotification, REMINDER_OPTIONS, scheduleEventNotification } from "../utils/notifications";
+import { cancelEventNotification, REMINDER_OPTIONS, scheduleEventNotification } from "../../lib/utils/notifications";
 import InlineDateTimePicker, { CalendarPicker, pickerStyles, TimePicker } from "./InlineDateTimePicker";
 
 type Props = {
@@ -179,7 +179,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       }
 
       // 计算 parent 原始日期参考
-      const parentStartOrig = toDT(parent.dtstart ?? parent.start ?? parent.dtstart) ?? newStartRef;
+      // 修复：将 parent.start 断言为 any 以允许访问，或直接移除它
+      const parentStartOrig = toDT(parent.dtstart ?? (parent as any).start) ?? newStartRef;
 
       // newParentStart：保留 parent 日期，替换 time-of-day 为 newStartRef 的时分秒
       const newParentStart = parentStartOrig.set({
@@ -236,14 +237,14 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       const children = items.filter((it: any) => it.originalId === parent.id || it.parentId === parent.id);
       for (const child of children) {
         try {
-          const childStartOrig = toDT(child.dtstart ?? child.start ?? child.dtstart);
+          const childStartOrig = toDT(child.dtstart ?? (child as any).start);
           if (!childStartOrig || !childStartOrig.isValid) continue;
           // 计算此 child 的持续时长：若全局时长存在则使用它；否则使用该 child 原始持续时长
           let childDuration = 0;
           if (globalDurationMins !== null) {
             childDuration = globalDurationMins;
           } else {
-            const childEndOrig = toDT(child.dtend ?? child.end ?? child.dtend);
+            const childEndOrig = toDT(child.dtend ?? (child as any).end);
             if (childEndOrig && childStartOrig && childEndOrig.isValid && childStartOrig.isValid) {
               const diff = childEndOrig.diff(childStartOrig, "minutes").minutes;
               childDuration = Math.max(1, Math.round(diff));

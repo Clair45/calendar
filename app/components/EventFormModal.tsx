@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
 // 补充导入 REMINDER_OPTIONS
-import { REMINDER_OPTIONS, scheduleEventNotification } from "../utils/notifications";
+import { REMINDER_OPTIONS, scheduleEventNotification } from "../../lib/utils/notifications";
 
 type Props = {
   visible: boolean;
@@ -401,7 +401,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
               </TouchableOpacity>
             </View>
 
-            <View style={styles.content}>
+            <ScrollView style={styles.content}>
               <Text style={styles.label}>标题（必填）</Text>
               <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="事件标题" />
 
@@ -618,7 +618,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                   )}
                 </>
               )}
-             </View>
+             </ScrollView>
            </View>
          </View>
        </Modal>
