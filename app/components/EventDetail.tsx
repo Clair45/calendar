@@ -49,24 +49,57 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       return;
     }
 
-    setTitle(event.title ?? "");
-    setLocation((event as any).location ?? "");
-    setNotes((event as any).notes ?? "");
+    // --- 新增：从 items 中查找最新数据 ---
+    // 因为 event prop 可能是旧的（父组件未重新计算实例），我们需要从 items 中获取最新的 title/notes/location
+    let currentData = event;
+    if (items && items.length > 0) {
+      // 1. 尝试直接匹配 ID (非重复事件或父事件)
+      const exactMatch = items.find((it: any) => it.id === event.id);
+      if (exactMatch) {
+        currentData = exactMatch;
+      } else {
+        // 2. 如果是重复实例，尝试找到父事件获取共享字段 (title, notes, location)
+        const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
+        const parsedParentFromId = typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
+        const parentId = instOriginalId ?? parsedParentFromId ?? event.id;
+        
+        const parent = items.find((it: any) => it.id === parentId);
+        if (parent) {
+          // 合并父事件的最新信息，但保留实例的时间信息
+          currentData = {
+            ...event,
+            title: parent.title,
+            location: (parent as any).location, // <--- 修改此处：添加 (parent as any)
+            notes: parent.notes,
+            alertOffset: (parent as any).alertOffset // 如果 alertOffset 报错也同样处理
+          };
+        }
+      }
+    }
+    // ------------------------------------
+
+    setTitle(currentData.title ?? "");
+    setLocation((currentData as any).location ?? "");
+    setNotes((currentData as any).notes ?? "");
 
     const parseToLocal = (v: any) =>
       (DateTime as any).isDateTime?.(v) ? (v as DateTime).toLocal() : v ? DateTime.fromISO(String(v), { setZone: true }).toLocal() : null;
+    
+    // 时间仍优先使用 event 中的（因为实例的时间是计算出来的，items 里存的是规则）
     setStartDT(parseToLocal(event.start ?? event.dtstart));
     setEndDT(parseToLocal(event.end ?? event.dtend ?? event.start ?? event.dtstart));
 
     // 读取 alertOffset：优先实例自身 -> 回退 parent（从 items 中查找） -> 默认 -1
     try {
-      const rawAlert = (event as any).alertOffset;
+      const rawAlert = (currentData as any).alertOffset; // 使用 currentData
       let ao: number | null = null;
       if (rawAlert != null) {
         ao = typeof rawAlert === "number" ? rawAlert : Number(rawAlert);
       }
 
       if (ao == null || Number.isNaN(ao)) {
+        // 如果 currentData 已经是 parent 或合并了 parent，上面的 rawAlert 应该已经取到了
+        // 这里保留兜底逻辑
         const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
         const parsedParentFromId = typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
         const parentId = instOriginalId ?? parsedParentFromId ?? event.id;

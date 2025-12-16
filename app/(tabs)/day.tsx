@@ -79,7 +79,7 @@ export default function DayView() {
           return { ...ev, start: clippedStart, end: clippedEnd };
         });
     } catch {
-      // fallback to non-repeat events
+
     }
 
     return (storedEvents ?? [])
@@ -109,7 +109,7 @@ export default function DayView() {
       const startMs = ev.start.toMillis();
       const endMs = ev.end.toMillis();
 
-      // 如果当前事件开始时间早于当前簇的结束时间，说明有重叠（或连带重叠）
+      // 如果当前事件开始时间早于当前簇的结束时间，说明有重叠
       if (currentCluster.length > 0 && startMs < clusterEnd) {
         currentCluster.push(ev);
         clusterEnd = Math.max(clusterEnd, endMs);
@@ -125,7 +125,6 @@ export default function DayView() {
 
     // 3. 计算每个事件的布局位置
     for (const cluster of clusters) {
-      // 简单的列分配算法 (First Fit)
       const columns: number[] = []; // 记录每一列最后一个事件的结束时间
 
       for (const ev of cluster) {
@@ -166,7 +165,7 @@ export default function DayView() {
   const scrollRef = useRef<ScrollView | null>(null);
   const [nowTop, setNowTop] = useState<number | null>(null);
 
-  // scroll to "now" when viewing today 
+  //实时显示“现在”
   useMemo(() => {
     const isToday = selected.hasSame(DateTime.local(), 'day');
     if (!isToday) {
@@ -178,7 +177,6 @@ export default function DayView() {
     setNowTop(top);
     if (scrollRef.current) {
       const offset = Math.max(0, top - HOUR_HEIGHT * 3);
-      // @ts-ignore
       scrollRef.current.scrollTo({ y: offset, animated: true });
     }
   }, [selected]);
@@ -319,10 +317,8 @@ const styles = StyleSheet.create({
   nowLabelText: { color: '#ff3b30', fontWeight: '700', fontSize: 12 },
   hourSlot: { borderTopWidth: 1, borderTopColor: '#f2f2f2' },
 
-  // 修改 eventBlock 样式：移除固定的 left/right，改由内联样式控制
   eventBlock: {
     position: 'absolute',
-    // left: 8, right: 8,  <-- 移除这些固定值
     backgroundColor: '#007bff',
     borderRadius: 4,
     padding: 4,

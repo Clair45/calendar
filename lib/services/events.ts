@@ -84,3 +84,26 @@ export function subscribe(cb: (items: EventRecord[]) => void) {
     listeners = listeners.filter((l) => l !== cb);
   };
 }
+
+// 新增：覆盖所有事件（用于导入功能）
+export async function replaceAllEvents(newEvents: EventRecord[]): Promise<void> {
+  try {
+    // 1. 写入存储
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newEvents));
+    // 2. 通知所有订阅者（useEvents 会收到通知并更新 UI）
+    notify(newEvents); 
+  } catch (e) {
+    console.error("Failed to replace events", e);
+    throw e;
+  }
+}
+
+function notify(items: EventRecord[]) {
+  listeners.forEach((cb) => {
+    try {
+      cb(items);
+    } catch (err) {
+      console.error("listener callback error", err);
+    }
+  });
+}

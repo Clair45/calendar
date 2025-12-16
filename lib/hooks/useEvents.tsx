@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { EventRecord, getAllEvents, subscribe, addEvent as svcAdd, deleteEvent as svcDelete, updateEvent as svcUpdate } from '../services/events';
+import { EventRecord, getAllEvents, replaceAllEvents, subscribe, addEvent as svcAdd, deleteEvent as svcDelete, updateEvent as svcUpdate } from '../services/events';
 
 export function useEvents() {
   const [items, setItems] = useState<EventRecord[]>([]);
@@ -27,5 +27,10 @@ export function useEvents() {
     return await svcDelete(id);
   };
 
-  return { items, loading, create, update, remove };
+  const replaceAll = async (newEvents: EventRecord[]) => {
+    await replaceAllEvents(newEvents);
+    return true;
+  };
+
+  return { items, loading, create, update, remove, replaceAll };
 }

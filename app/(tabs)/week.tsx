@@ -63,7 +63,6 @@ export default function WeekView() {
   );
 
   const instances = useMemo(() => {
-    // 保留 location 字段并建立映射
     const input = (storedEvents ?? []).map((ev) => ({
       id: ev.id,
       title: ev.title ?? "Event",
@@ -82,7 +81,6 @@ export default function WeekView() {
     for (const e of input) if (e.id) locMap[e.id] = e.location ?? '';
 
     const expanded = expandRecurrences(input, rangeStart, rangeEnd) ?? [];
-    // expanded items may or may not contain location — fallback to locMap
     const toDT = (v: any) => ((DateTime as any).isDateTime?.(v) ? v : DateTime.fromISO(String(v)));
     return (expanded ?? []).map((ins: any) => {
       const s = toDT(ins.start ?? ins.dtstart);
@@ -111,7 +109,6 @@ export default function WeekView() {
 
       // 找出与该日有时间交集的所有实例（包含跨天事件）
       const evs = (instances ?? []).filter((ev: any) => {
-        // ev.start < dayEnd && ev.end > dayStart 说明有交集
         return ev.start < dayEnd && ev.end > dayStart;
       }) as DemoEvent[];
 
@@ -126,20 +123,14 @@ export default function WeekView() {
         const top = startHour * HOUR_HEIGHT;
         const height = Math.max(40, durationHours * HOUR_HEIGHT);
 
-        // --- 新增：计算重叠层级 ---
+        // --- 重叠层级 ---
         let overlapCount = 0;
-        // 简单检查：遍历排在它前面的事件，看是否有时间重叠
         for (let i = 0; i < index; i++) {
           const prev = evs[i];
-          // 如果前一个事件的结束时间晚于当前事件的开始时间，则视为重叠
-          // (前提是 evs 已经按开始时间排序过，这里默认 filter 出来的顺序通常是按时间序的，
-          //  如果 instances 未排序，建议在 filter 前先 sort 一下)
           if (prev.end > clippedStart && prev.start < clippedEnd) {
             overlapCount++;
           }
         }
-
-        // 返回时增加 indent (缩进等级) 和 zIndex
         return { 
           ...ev, 
           start: clippedStart, 
@@ -213,7 +204,7 @@ export default function WeekView() {
                             right: 4, 
                             // 3. 层级：越晚的越在上面
                             zIndex: (ev as any).zIndex,
-                            // 4. 颜色：使用带透明度的背景，以便看到下面有东西
+                            // 4. 颜色：使用带透明度的背景
                             backgroundColor: 'rgba(0, 123, 255, 0.85)' 
                           }
                         ]}

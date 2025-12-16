@@ -5,6 +5,7 @@ import { Button, Modal, PanResponder, Platform, ScrollView, StyleSheet, Text, To
 import { useEvents } from '../../lib/hooks/useEvents';
 import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
+import SettingsModal from '../components/SettingsModal'; // 导入组件
 import { expandRecurrences, InputEvent } from "../utils/recurrence";
 
 /**
@@ -55,6 +56,7 @@ export default function MonthView() {
    const [pickerVisible, setPickerVisible] = useState(false);
    const [pickerYear, setPickerYear] = useState<number>(current.year);
    const [showCreateModal, setShowCreateModal] = useState(false);
+   const [showSettings, setShowSettings] = useState(false); // 新增状态
    const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
 
   // 从持久化中读取事件
@@ -130,13 +132,16 @@ export default function MonthView() {
     // 左右滑动整个视图可切换月份
     <View style={styles.container} {...panResponder.panHandlers}>
       <View style={styles.header}>
-
         <TouchableOpacity onPress={() => { setPickerYear(current.year); setPickerVisible(true); }}>
           <Text style={styles.title}>{current.toFormat("LLLL yyyy")}</Text>
         </TouchableOpacity>
 
-        {/* Add button */}
         <View style={styles.headerRight}>
+          {/* 新增：设置按钮 (放在 + 号左边) */}
+          <TouchableOpacity onPress={() => setShowSettings(true)} style={{ padding: 6, marginRight: 8 }}>
+            <Text style={{ fontSize: 20, color: '#666' }}>⚙️</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity onPress={() => setShowCreateModal(true)} style={{ padding: 6 }}>
             <Text style={styles.addButton}>+</Text>
           </TouchableOpacity>
@@ -238,8 +243,10 @@ export default function MonthView() {
         </View>
       </Modal>
       <EventFormModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} initialDate={current} />
-      {/* 事件详情弹窗（查看 / 编辑 / 删除） */}
       <EventDetail visible={selectedEvent !== null} event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+      
+      {/* 新增：设置弹窗 */}
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} />
     </View>
   );
 }
@@ -273,6 +280,6 @@ const styles = StyleSheet.create({
   monthColumn: { flex: 1, paddingLeft: 8, flexWrap: 'wrap', flexDirection: 'row', justifyContent: 'space-between' },
   monthItem: { width: '30%', paddingVertical: 10, alignItems: 'center', marginBottom: 8, borderRadius: 6, backgroundColor: '#f7f7f7' },
   monthText: { fontSize: 14, color: '#222' },
-  headerRight: { position: 'absolute', right: 10, top: 2 },
+  headerRight: { position: 'absolute', right: 10, top: 2, flexDirection: 'row', alignItems: 'center' },
   addButton: { fontSize: 22, color: '#007bff' },
 });
