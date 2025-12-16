@@ -134,8 +134,10 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
         ? "FREQ=WEEKLY"
         : "FREQ=MONTHLY";
     if (rrule && recurrenceEndMode === "until" && untilDate) {
-      // RRULE 的 UNTIL 使用 UTC 格式 YYYYMMDDTHHMMSSZ
-      const untilStr = untilDate.toUTC().toFormat("yyyyLLdd'T'HHmmss'Z'");
+      // 为了包含用户选择的“直到日期”的整天范围，使用该日的结束时刻
+      // 先把用户选的本地日期扩展到当天结束，再转为 UTC 字符串
+      const untilDt = untilDate.endOf('day').toUTC();
+      const untilStr = untilDt.toFormat("yyyyLLdd'T'HHmmss'Z'");
       rrule = `${rrule};UNTIL=${untilStr}`;
     }
 
