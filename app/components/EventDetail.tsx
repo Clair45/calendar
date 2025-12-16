@@ -24,7 +24,7 @@ type Props = {
 
 
 export default function EventDetail({ visible, event, onClose }: Props) {
-  const { items = [], update, remove } = useEvents();
+  const { items = [], create, update, remove } = useEvents();
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
@@ -189,9 +189,10 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       }
 
       // parent 存在且为重复系列，并且当前是某次 instance（parentId !== event.id）
-      // 目标：保留每个实例的日期，只替换 time-of-day；时长严格依据用户输入：
-      //  - 若用户同时提供 startDT 与 endDT -> 使用两者差值（统一应用到所有实例）
-      //  - 否则对每个子实例保持其原有持续时长
+      // 目标分两种情况：
+      // 1) 用户编辑的是“单次实例”（event.id !== parent.id）：只更新该 child（可修改日期或时间）
+      // 2) 用户编辑的是 parent（series）本身：按原逻辑更新 parent 及其所有子项（仅应用 time-of-day / 全局时长）
+      const isEditingInstance = event.id !== parent.id;
       const newStartRef = startDT ?? toDT(event.start ?? event.dtstart);
       const newEndRef = endDT ?? toDT(event.end ?? event.dtend ?? event.start ?? event.dtstart);
 
@@ -211,11 +212,96 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         }
       }
 
-      // 计算 parent 原始日期参考
-      // 修复：将 parent.start 断言为 any 以允许访问，或直接移除它
+      if (isEditingInstance) {
+        try {
+          // 查找是否已有例外 child（独立事件）存在
+          const child = items.find((it: any) => it.id === event.id);
+
+          // 计算此 child 的持续时长：优先 globalDurationMins，否则使用原 child/instance 持续时长
+          let childDuration = 0;
+          if (globalDurationMins !== null) {
+            childDuration = globalDurationMins;
+          } else {
+            const childStartOrig = toDT(child?.dtstart ?? (child as any).start ?? event.start ?? event.dtstart);
+            const childEndOrig = toDT(child?.dtend ?? (child as any).end ?? event.end ?? event.dtend);
+            if (childStartOrig && childEndOrig && childStartOrig.isValid && childEndOrig.isValid) {
+              childDuration = Math.max(1, Math.round(childEndOrig.diff(childStartOrig, "minutes").minutes || 0));
+            } else {
+              childDuration = 60; // fallback
+            }
+          }
+
+          const childNewStart = newStartRef.set({ millisecond: newStartRef.millisecond ?? 0 });
+          const childNewEnd = childNewStart.plus({ minutes: childDuration });
+
+          if (child) {
+            // 已有例外事件 -> 直接更新该条记录
+            const payload = { ...(child as any), ...(updatedFields || {}) };
+            payload.dtstart = childNewStart.toISO();
+            payload.dtend = childNewEnd.toISO();
+            await update(child.id, payload);
+
+            // 更新通知
+            if (alertOffset >= 0) await scheduleEventNotification(child.id, title.trim(), childNewStart.toLocal(), alertOffset);
+            else await cancelEventNotification(child.id);
+          } else {
+            // 没有例外事件 -> 创建例外：1) 在 parent 添加 exdate 排除原实例 2) 创建一个新的单次事件作为覆盖
+            const occISO =
+              event?.start
+                ? (DateTime as any).isDateTime?.(event.start)
+                  ? event.start.toISO()
+                  : DateTime.fromISO(String(event.start)).toISO()
+                : DateTime.fromISO(String(event?.dtstart ?? "")).toISO();
+
+            // 在 parent 上加入 exdate（排除原始实例）
+            const prevEx = Array.isArray(parent.exdate) ? parent.exdate : [];
+            const newEx = Array.from(new Set([...prevEx, occISO]));
+            await update(parent.id, { ...(parent as any), exdate: newEx });
+
+            // 创建覆盖事件（单次），关联 originalId/parentId
+            const newOneOff: any = {
+              ...((parent as any) || {}),
+              ...updatedFields,
+              dtstart: childNewStart.toISO(),
+              dtend: childNewEnd.toISO(),
+              originalId: parent.id,
+              parentId: parent.id,
+              rrule: undefined,
+              exdate: undefined,
+              rdate: undefined,
+            };
+            // 删除不应复制的字段
+            delete newOneOff.id;
+            // 使用 create 创建新事件（确保 useEvents 中有 create）
+            if (typeof create === "function") {
+              const created = await create(newOneOff);
+              if (created && created.id) {
+                if (alertOffset >= 0) await scheduleEventNotification(created.id, title.trim(), childNewStart.toLocal(), alertOffset);
+                else await cancelEventNotification(created.id);
+              }
+            } else {
+              // 如果没有 create，退回到直接 update parent 并告知用户
+              console.warn("useEvents.create not available, unable to create override event");
+              Alert.alert("更新失败", "无法创建例外事件，请稍后重试。");
+              return;
+            }
+          }
+
+          setStartDT(childNewStart.toLocal());
+          setEndDT(childNewEnd.toLocal());
+          onClose();
+          return;
+        } catch (e) {
+          console.warn("update single occurrence failed", e);
+          Alert.alert("更新失败", String(e));
+          return;
+        }
+      }
+
+      // 否则：编辑的是 parent series —— 保持原来行为（修改 parent 的 time-of-day 与所有子项的 time）
+      // 计算 parent 原始日期参考（用 parent.dtstart 的日期部分）
       const parentStartOrig = toDT(parent.dtstart ?? (parent as any).start) ?? newStartRef;
 
-      // newParentStart：保留 parent 日期，替换 time-of-day 为 newStartRef 的时分秒
       const newParentStart = parentStartOrig.set({
         hour: newStartRef.hour,
         minute: newStartRef.minute,
@@ -223,7 +309,6 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         millisecond: newStartRef.millisecond ?? 0,
       });
 
-      // newParentEnd：若 globalDurationMins 存在则用它，否则保持 parent 原有持续时长（若有）
       let newParentEnd = null;
       if (globalDurationMins !== null) {
         newParentEnd = newParentStart.plus({ minutes: globalDurationMins });
@@ -235,11 +320,10 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         }
       }
 
-      // 更新 parent（替换 dtstart；若 newParentEnd 存在则一并替换 dtend）
       const parentPayload: any = { ...(parent as any), ...(updatedFields || {}) };
       parentPayload.dtstart = newParentStart.toISO();
       if (newParentEnd) parentPayload.dtend = newParentEnd.toISO();
-      // 同步 exdate/rdate 的 time-of-day（保留日期部分）
+
       const mapDatesToNewTime = (arr: any[] | undefined) => {
         if (!Array.isArray(arr)) return arr || [];
         return arr
@@ -266,13 +350,12 @@ export default function EventDetail({ visible, event, onClose }: Props) {
 
       await update(parent.id, parentPayload);
 
-      // 更新所有以 parent 为 originalId / parentId 的单次例外事件：保留各自日期，仅替换 time-of-day
+      // 更新所有子项：仅替换 time-of-day（保留各自日期），或应用 globalDuration
       const children = items.filter((it: any) => it.originalId === parent.id || it.parentId === parent.id);
       for (const child of children) {
         try {
           const childStartOrig = toDT(child.dtstart ?? (child as any).start);
           if (!childStartOrig || !childStartOrig.isValid) continue;
-          // 计算此 child 的持续时长：若全局时长存在则使用它；否则使用该 child 原始持续时长
           let childDuration = 0;
           if (globalDurationMins !== null) {
             childDuration = globalDurationMins;
@@ -282,7 +365,6 @@ export default function EventDetail({ visible, event, onClose }: Props) {
               const diff = childEndOrig.diff(childStartOrig, "minutes").minutes;
               childDuration = Math.max(1, Math.round(diff));
             } else {
-              // 若既没有 global 时长也无法求出 child 原有时长，则跳过更新 child（避免使用任意默认）
               continue;
             }
           }
