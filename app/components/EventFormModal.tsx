@@ -95,7 +95,6 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
       setNotes("");
       setAlertOffset(-1);
       setShowAlertPicker(false);
-      
       const s = normalizeLocal(defaultStart);
       setStart(s);
       setEnd(normalizeLocal(s.plus({ hours: 1 })));
