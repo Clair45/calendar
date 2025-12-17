@@ -12,7 +12,6 @@ import {
   View,
 } from "react-native";
 import { useEvents } from "../../lib/hooks/useEvents";
-// 补充导入调度函数
 import { cancelEventNotification, REMINDER_OPTIONS, scheduleEventNotification } from "../../lib/utils/notifications";
 import InlineDateTimePicker, { CalendarPicker, pickerStyles, TimePicker } from "./InlineDateTimePicker";
 
@@ -49,8 +48,7 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       return;
     }
 
-    // --- 新增：从 items 中查找最新数据 ---
-    // 因为 event prop 可能是旧的（父组件未重新计算实例），我们需要从 items 中获取最新的 title/notes/location
+    // 从 items 中获取最新的 title/notes/location
     let currentData = event;
     if (items && items.length > 0) {
       // 1. 尝试直接匹配 ID (非重复事件或父事件)
@@ -58,25 +56,23 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       if (exactMatch) {
         currentData = exactMatch;
       } else {
-        // 2. 如果是重复实例，尝试找到父事件获取共享字段 (title, notes, location)
+        // 2. 重复实例，尝试找到父事件获取共享字段 (title, notes, location)
         const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
         const parsedParentFromId = typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
         const parentId = instOriginalId ?? parsedParentFromId ?? event.id;
         
         const parent = items.find((it: any) => it.id === parentId);
         if (parent) {
-          // 合并父事件的最新信息，但保留实例的时间信息
           currentData = {
             ...event,
             title: parent.title,
-            location: (parent as any).location, // <--- 修改此处：添加 (parent as any)
+            location: (parent as any).location, 
             notes: parent.notes,
-            alertOffset: (parent as any).alertOffset // 如果 alertOffset 报错也同样处理
+            alertOffset: (parent as any).alertOffset 
           };
         }
       }
     }
-    // ------------------------------------
 
     setTitle(currentData.title ?? "");
     setLocation((currentData as any).location ?? "");
@@ -98,8 +94,6 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       }
 
       if (ao == null || Number.isNaN(ao)) {
-        // 如果 currentData 已经是 parent 或合并了 parent，上面的 rawAlert 应该已经取到了
-        // 这里保留兜底逻辑
         const instOriginalId = (event as any).originalId ?? (event as any).parentId ?? null;
         const parsedParentFromId = typeof event?.id === "string" && event.id.includes("::") ? event.id.split("::")[0] : null;
         const parentId = instOriginalId ?? parsedParentFromId ?? event.id;
@@ -159,18 +153,11 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         const base = parent && parentId !== event.id ? parent : event;
         const payload = { ...(base as any), ...updatedFields };
         await update(targetId, payload);
-        // --- 新增：更新系统通知 ---
-        // 无论更新的是 parent 还是 child，我们都尝试为当前正在查看的这个事件 ID 设定通知
-        // 注意：如果是重复事件的 parent，这里只为 parent 本身设定了通知。
-        // 若需要为所有子事件设定通知，逻辑会较复杂。此处仅保证“当前查看的事件”有提醒。
-        
-        // 获取最终的开始时间 (优先使用 startDT，否则用 event 原有时间)
         const finalStartDT = startDT ?? toDT(event.start ?? event.dtstart);
         
         // 只有当时间有效且 ID 存在时才调度
         if (finalStartDT && finalStartDT.isValid && event.id) {
           if (alertOffset >= 0) {
-            // 调度新提醒
             await scheduleEventNotification(
               event.id, 
               title.trim(), 
@@ -182,7 +169,6 @@ export default function EventDetail({ visible, event, onClose }: Props) {
             await cancelEventNotification(event.id);
           }
         }
-        // ---------------------------
 
         onClose();
         return;
@@ -227,7 +213,7 @@ export default function EventDetail({ visible, event, onClose }: Props) {
             if (childStartOrig && childEndOrig && childStartOrig.isValid && childEndOrig.isValid) {
               childDuration = Math.max(1, Math.round(childEndOrig.diff(childStartOrig, "minutes").minutes || 0));
             } else {
-              childDuration = 60; // fallback
+              childDuration = 60; 
             }
           }
 
@@ -270,9 +256,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
               exdate: undefined,
               rdate: undefined,
             };
-            // 删除不应复制的字段
             delete newOneOff.id;
-            // 使用 create 创建新事件（确保 useEvents 中有 create）
+            // 使用 create 创建新事件
             if (typeof create === "function") {
               const created = await create(newOneOff);
               if (created && created.id) {
@@ -280,7 +265,7 @@ export default function EventDetail({ visible, event, onClose }: Props) {
                 else await cancelEventNotification(created.id);
               }
             } else {
-              // 如果没有 create，退回到直接 update parent 并告知用户
+              // 没有 create，退回到直接 update parent 并告知用户
               console.warn("useEvents.create not available, unable to create override event");
               Alert.alert("更新失败", "无法创建例外事件，请稍后重试。");
               return;
@@ -350,7 +335,6 @@ export default function EventDetail({ visible, event, onClose }: Props) {
 
       await update(parent.id, parentPayload);
 
-      // 更新所有子项：仅替换 time-of-day（保留各自日期），或应用 globalDuration
       const children = items.filter((it: any) => it.originalId === parent.id || it.parentId === parent.id);
       for (const child of children) {
         try {
@@ -425,10 +409,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
         const newEx = Array.from(new Set([...prevEx, occISO]));
         await update(parent.id, { ...(parent as any), exdate: newEx });
       } else {
-        // fallback: delete this id (for non-recurring)
         if (typeof remove === "function") await remove(event.id);
       }
-      // 新增：取消通知
       await cancelEventNotification(event.id);
     } catch (e) {
       console.warn("remove single occurrence error", e);
@@ -456,13 +438,8 @@ export default function EventDetail({ visible, event, onClose }: Props) {
       const occStart = getLocalDT(event.start ?? event.dtstart);
 
       if (parent && parent.rrule && typeof update === "function") {
-        // 目标：删除包含当前实例在内的后续所有实例
-        // UNTIL 是包含性的，所以要设为“当前开始时间 - 1秒”
         const untilLocal = occStart.minus({ seconds: 1 });
 
-        // 关键修复：配合 recurrence.ts 的“伪 UTC”策略
-        // 我们必须把“本地时间组件”直接拼成 UTC 字符串，而不是转为真实 UTC。
-        // 否则在 UTC-X 时区会导致 UNTIL 晚于当前时间（导致没删掉），或 UTC+X 时区导致多删。
         const untilUtc = DateTime.utc(
           untilLocal.year,
           untilLocal.month,

@@ -56,7 +56,6 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
-  // 新增 state: 默认 -1 (无)
   const [alertOffset, setAlertOffset] = useState<number>(-1); 
   const [showAlertPicker, setShowAlertPicker] = useState(false);
 
@@ -137,20 +136,16 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
         ? "FREQ=WEEKLY"
         : "FREQ=MONTHLY";
     if (rrule && recurrenceEndMode === "until" && untilDate) {
-      // 为了包含用户选择的“直到日期”的整天范围，使用该日的结束时刻
+      // 使用该日的结束时刻
       // 先把用户选的本地日期扩展到当天结束，再转为 UTC 字符串
       const untilDt = untilDate.endOf('day').toUTC();
       const untilStr = untilDt.toFormat("yyyyLLdd'T'HHmmss'Z'");
       rrule = `${rrule};UNTIL=${untilStr}`;
     }
-
-    // 不再用 normalizeLocal；start/end 已在 useState 初始化和 pickDate/incHour 中保持为本地时区
-    // 直接用其 toISO()（包含当前 offset），即为浮动本地时间（如 2025-11-01T17:45:00+08:00）
     const finalStart = start.toLocal();
     const finalEnd = end.toLocal();
  
      // 1. 创建事件 (假设 create 返回新 ID，或者我们需要生成 ID)
-    // 注意：如果 useEvents 的 create 没有返回 ID，你需要先生成 ID
     const newEventId = Date.now().toString(); // 简单示例 ID
 
     await create({
@@ -165,7 +160,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
       rdate: [],
       timezone: finalStart.zoneName,
       notes: notes.trim(),
-      alertOffset, // 保存设置到数据库
+      alertOffset, 
     } as any);
 
     // 2. 调度通知
@@ -224,7 +219,6 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
     const mid = Math.floor(VISIBLE_TIME_ITEMS / 2);
     const idx = Math.round(y / TIME_ITEM_HEIGHT) + mid;
     const clamped = Math.max(0, Math.min(TIME_OPTIONS.length - 1, idx));
-    // TIME_OPTIONS 仅包含分钟（"00","05"...），保留原有小时，只替换分钟
     const mm = parseInt(TIME_OPTIONS[clamped], 10);
     const baseDate = which === "start" ? start : end;
     const updated = baseDate.set({ minute: mm, second: 0, millisecond: 0 });
@@ -265,7 +259,6 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
   }
 
   // 小日历内联面板（渲染在 start/end 区块下方）
-  // 修改：增加 minDate 可选属性
   function CalendarPicker({ visible, value, onPick, onClose, minDate }: { visible: boolean; value: DateTime; onPick: (d: DateTime) => void; onClose: () => void; minDate?: DateTime }) {
     const [month, setMonth] = useState<DateTime>(() => value.startOf("month"));
     useEffect(() => setMonth(value.startOf("month")), [value]);
@@ -301,20 +294,19 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
             return (
               <TouchableOpacity
                 key={d.toISODate()}
-                // 修改：应用禁用样式和 disabled 属性
                 style={[
                   styles.dayCell, 
                   !inMonth && styles.dayCellMuted, 
                   isSelected && styles.dayCellSel,
-                  isDisabled && styles.dayCellDisabled // 新增样式
+                  isDisabled && styles.dayCellDisabled 
                 ]}
                 onPress={() => onPick(d)}
-                disabled={isDisabled} // 禁用点击
+                disabled={isDisabled}
               >
                 <Text style={[
                   styles.dayText, 
                   isSelected && styles.dayTextSel,
-                  isDisabled && styles.dayTextDisabled // 新增样式
+                  isDisabled && styles.dayTextDisabled 
                 ]}>
                   {d.day}
                 </Text>
@@ -463,7 +455,6 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                       <TouchableOpacity onPress={() => incHour(1, "start")} style={styles.smallBtn}><Text>+1h</Text></TouchableOpacity>
                     </View>
                     <View style={styles.centerControls}>
-                      {/* 修改 onPress 调用新的互斥函数 */}
                       <TouchableOpacity onPress={() => openCalendar("start")} style={styles.dateBtnFull}>
                         <Text>{start.toFormat("yyyy-LL-dd")}</Text>
                       </TouchableOpacity>
@@ -482,7 +473,6 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                       <TouchableOpacity onPress={() => incHour(1, "end")} style={styles.smallBtn}><Text>+1h</Text></TouchableOpacity>
                     </View>
                     <View style={styles.centerControls}>
-                      {/* 修改 onPress 调用新的互斥函数 */}
                       <TouchableOpacity onPress={() => openCalendar("end")} style={styles.dateBtnFull}>
                         <Text>{end.toFormat("yyyy-LL-dd")}</Text>
                       </TouchableOpacity>
@@ -493,7 +483,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                   </View>
                 </View>
                 
-                {/* 内联面板：互斥显示 */}
+                {/* 内联面板*/}
                 {showCalendarFor === "start" && (
                   <View style={{ width: "100%", paddingTop: 8 }}>
                     <CalendarPicker
@@ -542,7 +532,7 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                 multiline
               />
 
-              {/* 新增：提醒选择 UI */}
+              {/* 提醒选择 */}
               <Text style={styles.label}>提醒</Text>
               <TouchableOpacity
                 style={styles.inputBtn}
@@ -629,11 +619,9 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                         <TouchableOpacity onPress={() => setShowUntilCalendar((s) => !s)} style={styles.dateBtnFull}>
                           <Text>{untilDate.toFormat("yyyy-LL-dd")}</Text>
                         </TouchableOpacity>
-                        {/* web 端也允许通过原生 input 快速切换 */}
                         {Platform.OS === "web" && (
                           <input
                             type="date"
-                            // toISODate() 可能返回 null -> 用空字符串回退以满足 input value 类型
                             value={untilDate.toISODate() ?? ""}
                             style={{ marginLeft: 8 }}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
@@ -652,7 +640,6 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
                           <CalendarPicker
                             visible={true}
                             value={untilDate}
-                            // 新增：传入 minDate，限制不能早于事件结束时间
                             minDate={end}
                             onPick={(d): void => {
                               setUntilDate(d);
@@ -702,7 +689,6 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
    timeBtn: { padding: 6, borderRadius: 6, borderWidth: 1, borderColor: "#eee", marginVertical: 6, marginHorizontal: 6 },
    dateBtn: { padding: 8, borderRadius: 6, borderWidth: 1, borderColor: "#eee", marginHorizontal: 6 },
    timeDisplay: { padding: 8, borderRadius: 6, borderWidth: 1, borderColor: "#eee", marginHorizontal: 6 },
-   /* 新增：垂直布局样式，适配手机屏幕 */
    verticalGroup: { flexDirection: "column", gap: 8, marginTop: 6 },
    verticalItem: { paddingVertical: 6 },
    timeControlRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -736,12 +722,10 @@ export default function EventFormModal({ visible, onClose, initialDate }: Props)
    dayCell: { width: 40, height: 40, alignItems: "center", justifyContent: "center", margin: 2, borderRadius: 6 },
    dayCellMuted: { opacity: 0.4 },
    dayCellSel: { backgroundColor: "#007bff" },
-   // 新增禁用样式
    dayCellDisabled: { backgroundColor: "#f5f5f5", opacity: 0.5 },
    
    dayText: { color: "#333" },
    dayTextSel: { color: "#fff", fontWeight: "600" },
-   // 新增禁用文字样式
    dayTextDisabled: { color: "#ccc" },
    
    calendarFooter: { marginTop: 8, alignItems: "flex-end" },

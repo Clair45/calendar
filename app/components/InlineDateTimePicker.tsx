@@ -13,7 +13,6 @@ import {
 // 动态引入原生 picker，避免在 web 打包时解析原生模块
 let RNDateTimePicker: any = null;
 if (Platform.OS !== "web") {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   RNDateTimePicker = require("@react-native-community/datetimepicker").default;
 }
 
@@ -44,7 +43,6 @@ const TIME_OPTIONS = buildTimeOptions();
 export default function InlineDateTimePicker({ start, end, onChange, startInvalid, endInvalid }: Props) {
   const iosOrAndroid = Platform.OS !== "web";
 
-  // 兜底非空，方便渲染
   const safeStart = start ?? DateTime.local();
   const safeEnd = end ?? safeStart.plus({ minutes: 30 });
 
@@ -114,7 +112,6 @@ export default function InlineDateTimePicker({ start, end, onChange, startInvali
         )}
       </View>
 
-      {/* 只有原生平台才渲染原生 picker */}
       {iosOrAndroid && RNDateTimePicker && start && end && (
         <View>
           <RNDateTimePicker
@@ -124,7 +121,6 @@ export default function InlineDateTimePicker({ start, end, onChange, startInvali
             onChange={(_event: any, d?: Date) => {
               if (!d) return;
               const s = DateTime.fromJSDate(d);
-              // 使用 millis 比较 DateTime（避免使用 < / >）
               const newEnd = safeEnd.toMillis() < s.toMillis() ? s.plus({ hours: 1 }) : safeEnd;
               onChange({ start: s, end: newEnd });
             }}
@@ -260,7 +256,6 @@ export function TimePicker({
       </View>
 
       <ScrollView
-        // 推荐：直接传入 ref 对象（更稳定，不会每次渲染创建新函数）
         ref={timeScrollRef}
         showsVerticalScrollIndicator={false}
         snapToInterval={TIME_ITEM_HEIGHT}
@@ -300,8 +295,6 @@ const styles = StyleSheet.create({
   input: { flex: 1, borderWidth: 1, borderColor: "#eee", padding: 8, borderRadius: 6 },
   inputBtn: { flex: 1, padding: 10, borderRadius: 6, backgroundColor: "#f6f6f6" },
   inputText: { color: "#222" },
-
-  // 新增：面板外层统一 wrapper（供外部文件使用）
   panelWrap: { width: "100%", paddingTop: 8 },
 
   calendarInline: { width: "100%", backgroundColor: "#fff", borderRadius: 10, padding: 8, borderWidth: 1, borderColor: "#eee", marginTop: -30 },
@@ -326,5 +319,4 @@ const styles = StyleSheet.create({
   // 无效时间文本样式：红色并划线
   invalidText: { color: "#c00", textDecorationLine: "line-through" },
 });
-// 导出样式供其它组件复用，保持外观一致
 export const pickerStyles = styles;

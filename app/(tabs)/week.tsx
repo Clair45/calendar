@@ -15,7 +15,7 @@ type DemoEvent = {
   start: DateTime;
   end: DateTime;
   location?: string;
-  originalId: string; // <- 新增：与 EventInstance 对齐
+  originalId: string; 
 };
 
 export default function WeekView() {

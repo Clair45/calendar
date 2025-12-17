@@ -23,11 +23,10 @@ export async function exportData(data: any, fileName: string = "calendar_backup.
       return undefined;
     } catch (e) {
       console.error("Web export failed", e);
-      throw new Error("导出失败（Web）");
+      throw new Error("导出失败(Web)");
     }
   }
 
-  // Native：动态导入以避免在 web/build 时的类型/模块问题
   try {
     const FileSystemModule: any = await import("expo-file-system").then((m) => m.default ?? m);
     const SharingModule: any = await import("expo-sharing").then((m) => m.default ?? m);
@@ -36,7 +35,6 @@ export async function exportData(data: any, fileName: string = "calendar_backup.
     const dir = FileSystemModule.documentDirectory ?? FileSystemModule.cacheDirectory ?? null;
     if (!dir) {
       console.warn("No documentDirectory or cacheDirectory available on this device.");
-      // 兜底：无法写文件时，改为直接分享 JSON 文本（适用于临时导出）
       try {
         await Share.share({
           title: fileName,
@@ -85,9 +83,7 @@ export async function importData(): Promise<any | null> {
       copyToCacheDirectory: true,
     });
 
-    // 区分 expo-document-picker 版本差异
     if ("canceled" in result && result.canceled) return null;
-    // expo document picker v13+ 返回 assets 数组
     const uri = (result as any).uri ?? ((result as any).assets && (result as any).assets[0]?.uri);
     if (!uri) return null;
 

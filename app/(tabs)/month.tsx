@@ -5,13 +5,13 @@ import { Button, Modal, PanResponder, Platform, ScrollView, StyleSheet, Text, To
 import { useEvents } from '../../lib/hooks/useEvents';
 import EventDetail from '../components/EventDetail';
 import EventFormModal from '../components/EventFormModal';
-import SettingsModal from '../components/SettingsModal'; // 导入组件
+import SettingsModal from '../components/SettingsModal';
 import { expandRecurrences, InputEvent } from "../utils/recurrence";
 
 /**
  * 生成月份日历矩阵（6行7列的日期网格）
  * @param monthDate - 当前月份日期
- * @param weekStartsOnMonday - 是否周一开始（默认true）
+ * @param weekStartsOnMonday - 周一开始（默认true）
  * @returns 6x7的DateTime矩阵
  */
 function generateMonthMatrix(monthDate: DateTime, weekStartsOnMonday = true) {

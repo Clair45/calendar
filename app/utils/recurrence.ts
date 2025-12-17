@@ -4,10 +4,10 @@ import { rrulestr } from "rrule";
 //定义输入事件
 export interface InputEvent {
   id: string;
-  title: string;
-  dtstart: string; // ISO字符串（本地浮动时间，例如 "2025-11-01T17:45:00"）
-  dtend?: string;
-  rrule?: string;
+  title: string;      // 标题
+  dtstart: string;   // 开始时间（ISO字符串）
+  dtend?: string;   // 结束时间（ISO字符串）
+  rrule?: string;  // 重复规则（RRULE格式）
   exdate?: string[];
   rdate?: string[];
   timezone?: string;
@@ -47,8 +47,7 @@ export function expandRecurrences(
       : localStart.plus({ hours: 1 });
     const duration = localEnd.diff(localStart);
 
-    // 2. 构造“伪 UTC”时间 (Fake UTC)
-    // 目的：让 RRULE 只处理纯数字时间（如 17:45），忽略时区/DST 变化
+    // 2. 构造“伪 UTC”时间 忽略时区/DST 变化
     const utcStart = DateTime.utc(
       localStart.year,
       localStart.month,
@@ -60,7 +59,7 @@ export function expandRecurrences(
 
     // Helper: 将 RRULE 生成的“伪 UTC”还原回“本地墙上时间”
     const pushInstance = (fakeUtcDate: Date) => {
-      // 把 Date 当作 UTC 解析，提取年/月/日/时/分
+      // 提取年/月/日/时/分
       const u = DateTime.fromJSDate(fakeUtcDate, { zone: "utc" });
       
       // 用提取的数字构造本地时间 (保持 17:45 不变)
@@ -94,9 +93,6 @@ export function expandRecurrences(
         const rule = rrulestr(ev.rrule, { dtstart: utcStart.toJSDate() } as any) as any;
 
         if (typeof rule.between === "function") {
-          // 这里的 range 也需要转为 UTC 范围进行比较，或者简单地取大范围
-          // 为简单起见，这里让 rule 生成所有可能，pushInstance 内部再做精确过滤
-          // (或者把 rangeStart/End 转为 Fake UTC 传入以提高性能)
           const fakeRangeStart = DateTime.utc(rangeStart.year, rangeStart.month, rangeStart.day).minus({ days: 1 }).toJSDate();
           const fakeRangeEnd = DateTime.utc(rangeEnd.year, rangeEnd.month, rangeEnd.day).plus({ days: 1 }).toJSDate();
           
@@ -134,14 +130,12 @@ export function expandRecurrences(
       }
     }
 
-    // 处理 EXDATE (按墙上时间字符串匹配)
+    // 处理 EXDATE
     if (ev.exdate && ev.exdate.length) {
-      // exdate 里的字符串已经是无 offset 的 ISO (如 "2025-11-02T17:45:00")
       const exSet = new Set(ev.exdate.map((s) => DateTime.fromISO(s, { setZone: false }).toISO({ includeOffset: false })));
       
       for (let i = instances.length - 1; i >= 0; i--) {
         if (instances[i].originalId === ev.id) {
-          // 比较生成的实例的墙上时间 ISO
           const iso = instances[i].start.toISO({ includeOffset: false });
           if (iso && exSet.has(iso)) {
             instances.splice(i, 1);

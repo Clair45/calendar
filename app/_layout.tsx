@@ -27,8 +27,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
-    shouldShowBanner: true, // 新增：是否显示横幅
-    shouldShowList: true,   // 新增：是否显示在通知列表中
+    shouldShowBanner: true, // 显示横幅
+    shouldShowList: true,   // 显示在通知列表中
   }),
 });
 
@@ -42,7 +42,7 @@ const Header = () => (
 export default function RootLayout() {
   // 4. 准备 Context 的值
   const contextValue: RootLayoutContextType = {
-    theme: 'light', // 示例值
+    theme: 'light', 
   };
 
   // 新增：请求通知权限
@@ -63,10 +63,8 @@ export default function RootLayout() {
 
   return (
     <RootLayoutContext.Provider value={contextValue}>
-      {/* 如果是全屏布局，通常不需要 ScrollView 包裹 Slot，视需求而定 */}
       <View style={{ flex: 1 }}> 
         <Header />
-        {/* 2. 使用 Slot 渲染当前路由页面，替代 <Content /> */}
         <Slot /> 
       </View>
     </RootLayoutContext.Provider>
